@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { supabase, mapUsernameToEmail } from '../services/supabase';
-import { Trophy, User, Lock, BadgeCheck, AlertCircle } from 'lucide-react';
+import { Trophy, User, Lock, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { UserRole } from '../types';
 
 const RegisterPage: React.FC = () => {
@@ -21,7 +21,6 @@ const RegisterPage: React.FC = () => {
     setLoading(true);
     setError(null);
 
-    // Basic username validation
     const username = formData.username.toLowerCase().trim();
     if (username.length < 3) {
       setError("Username must be at least 3 characters");
@@ -31,6 +30,7 @@ const RegisterPage: React.FC = () => {
 
     try {
       const emailShim = mapUsernameToEmail(username);
+      
       const { data, error: authError } = await supabase.auth.signUp({
         email: emailShim,
         password: formData.password,
@@ -44,19 +44,18 @@ const RegisterPage: React.FC = () => {
       });
 
       if (authError) {
-        // Provide helpful context for specific Supabase errors
-        if (authError.message.toLowerCase().includes("invalid email")) {
-          throw new Error("Supabase is rejecting the username shim. Please ensure 'Confirm Email' is DISABLED in your Supabase Auth Settings and no email validation blocks are active.");
+        if (authError.message.includes("invalid email")) {
+          throw new Error(`The identifier "${emailShim}" was rejected. Please go to your Supabase Dashboard > Auth > Settings and DISABLE "Confirm Email".`);
         }
         throw authError;
       }
 
       if (data.user) {
-        alert("Account created! You can now sign in with your username.");
+        alert("Registration successful! Sign in with your username.");
         navigate('/login');
       }
     } catch (err: any) {
-      setError(err.message || "Failed to create account");
+      setError(err.message || "Something went wrong. Check your internet connection.");
     } finally {
       setLoading(false);
     }
@@ -64,89 +63,90 @@ const RegisterPage: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-court flex items-center justify-center p-4">
-      <div className="max-w-2xl w-full bg-white rounded-3xl shadow-2xl overflow-hidden grid md:grid-cols-2">
-        <div className="bg-green-600 p-12 text-white flex flex-col justify-center relative overflow-hidden">
+      <div className="max-w-4xl w-full bg-white rounded-[3rem] shadow-2xl overflow-hidden grid md:grid-cols-2 border border-green-100">
+        <div className="bg-green-600 p-12 text-white flex flex-col justify-center relative">
           <div className="absolute top-0 right-0 p-8 opacity-10">
             <Trophy className="w-64 h-64 -mr-16 -mt-16" />
           </div>
-          <h2 className="text-4xl font-bold relative z-10">Join the Court</h2>
-          <p className="mt-4 text-green-100 relative z-10">ShuttleUp: Your elite badminton companion.</p>
-          <div className="mt-12 space-y-4 relative z-10">
-            {['No Email Required', 'Real-time Live Scores', 'Credit System'].map((feature) => (
-              <div key={feature} className="flex items-center gap-2">
-                <BadgeCheck className="w-5 h-5 text-green-300" />
-                <span className="font-medium">{feature}</span>
+          <h2 className="text-5xl font-black italic uppercase tracking-tighter mb-4 leading-none">Join the<br/>Elite.</h2>
+          <p className="text-green-100 text-lg mb-8 opacity-90">ShuttleUp: Tournament management redefined for winners.</p>
+          <div className="space-y-4">
+            {['Direct Username Login', 'Live Real-time Scoring', 'Internal Credits System'].map(f => (
+              <div key={f} className="flex items-center gap-3">
+                <CheckCircle2 className="w-5 h-5 text-green-300" />
+                <span className="font-bold tracking-tight">{f}</span>
               </div>
             ))}
           </div>
         </div>
 
-        <div className="p-8">
-          <h1 className="text-2xl font-bold text-gray-900 mb-6">Create Account</h1>
-          
+        <div className="p-12">
+          <div className="mb-10">
+            <h1 className="text-3xl font-black text-gray-900 tracking-tight italic uppercase">Create Profile</h1>
+            <p className="text-gray-500 mt-1 font-medium text-sm">No email verification required.</p>
+          </div>
+
           {error && (
-            <div className="mb-6 p-4 bg-red-50 border-l-4 border-red-500 text-red-700 flex items-start gap-3 rounded-r-lg">
-              <AlertCircle className="w-5 h-5 mt-0.5 flex-shrink-0" />
-              <div className="text-sm">
-                <p className="font-bold">Error Occurred</p>
+            <div className="mb-8 p-5 bg-red-50 border-2 border-red-100 rounded-2xl flex items-start gap-4 animate-in slide-in-from-top-2">
+              <AlertCircle className="w-6 h-6 text-red-500 flex-shrink-0" />
+              <div className="text-sm text-red-700 leading-relaxed">
+                <p className="font-bold mb-1">Authorization Blocked</p>
                 <p>{error}</p>
               </div>
             </div>
           )}
 
-          <form onSubmit={handleRegister} className="space-y-4">
+          <form onSubmit={handleRegister} className="space-y-5">
             <div>
-              <label className="block text-sm font-bold text-gray-700 mb-1">Username</label>
+              <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2">Unique Username</label>
               <div className="relative">
-                <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                <User className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
                 <input
                   type="text"
                   required
-                  autoComplete="username"
                   value={formData.username}
                   onChange={(e) => setFormData({...formData, username: e.target.value})}
-                  className="w-full pl-9 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-green-500 outline-none"
+                  className="w-full pl-12 pr-4 py-4 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-2 focus:ring-green-500 transition-all outline-none font-bold"
                   placeholder="e.g. sagayak"
                 />
               </div>
             </div>
 
-            <div>
-              <label className="block text-sm font-bold text-gray-700 mb-1">Full Name</label>
-              <input
-                type="text"
-                required
-                autoComplete="name"
-                value={formData.fullName}
-                onChange={(e) => setFormData({...formData, fullName: e.target.value})}
-                className="w-full px-4 py-2 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-green-500 outline-none"
-                placeholder="John Doe"
-              />
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2">Full Name</label>
+                <input
+                  type="text"
+                  required
+                  value={formData.fullName}
+                  onChange={(e) => setFormData({...formData, fullName: e.target.value})}
+                  className="w-full px-5 py-4 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-2 focus:ring-green-500 outline-none font-bold"
+                  placeholder="John Doe"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2">Account Role</label>
+                <select
+                  value={formData.role}
+                  onChange={(e) => setFormData({...formData, role: e.target.value as UserRole})}
+                  className="w-full px-5 py-4 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-2 focus:ring-green-500 outline-none font-bold appearance-none cursor-pointer"
+                >
+                  <option value="player">Player</option>
+                  <option value="admin">Organizer</option>
+                </select>
+              </div>
             </div>
 
             <div>
-              <label className="block text-sm font-bold text-gray-700 mb-1">Desired Role</label>
-              <select
-                value={formData.role}
-                onChange={(e) => setFormData({...formData, role: e.target.value as UserRole})}
-                className="w-full px-4 py-2 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-green-500 outline-none"
-              >
-                <option value="player">Player</option>
-                <option value="admin">Admin (Organizer)</option>
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-sm font-bold text-gray-700 mb-1">Password</label>
+              <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2">Secure Password</label>
               <div className="relative">
-                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
                 <input
                   type="password"
                   required
-                  autoComplete="new-password"
                   value={formData.password}
                   onChange={(e) => setFormData({...formData, password: e.target.value})}
-                  className="w-full pl-9 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-green-500 outline-none"
+                  className="w-full pl-12 pr-4 py-4 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-2 focus:ring-green-500 transition-all outline-none font-bold"
                   placeholder="••••••••"
                 />
               </div>
@@ -155,17 +155,17 @@ const RegisterPage: React.FC = () => {
             <button
               type="submit"
               disabled={loading}
-              className="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 rounded-xl shadow-lg transition-all active:scale-95 disabled:opacity-50"
+              className="w-full bg-gray-900 hover:bg-black text-white font-black italic uppercase tracking-tighter text-xl py-5 rounded-[2rem] shadow-xl transition-all active:scale-95 disabled:opacity-50 mt-4"
             >
-              {loading ? "Creating Account..." : "Create Account"}
+              {loading ? "Registering..." : "Ready for Court"}
             </button>
           </form>
 
-          <div className="mt-6 text-center">
-            <p className="text-sm text-gray-600">
-              Already have an account?{' '}
-              <Link to="/login" className="text-green-600 font-bold hover:underline">
-                Log In
+          <div className="mt-8 text-center">
+            <p className="text-gray-500 font-medium">
+              Member already?{' '}
+              <Link to="/login" className="text-green-600 font-black hover:underline underline-offset-4">
+                Sign In
               </Link>
             </p>
           </div>
