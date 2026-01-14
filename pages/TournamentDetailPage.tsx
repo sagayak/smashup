@@ -288,4 +288,35 @@ const TournamentDetailPage: React.FC<TournamentDetailPageProps> = ({ profile }) 
                     <p className="text-xs font-black text-gray-400 uppercase mb-2">Scheduled Date</p>
                     <div className="flex items-center gap-4">
                        <div className="bg-orange-50 p-3 rounded-2xl text-orange-600"><Calendar className="w-6 h-6" /></div>
-                       <span className="text
+                       <span className="text-xl font-black uppercase italic tracking-tighter">{new Date(tournament.start_date!).toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' })}</span>
+                    </div>
+                 </div>
+              </div>
+           </div>
+
+           <div className="bg-green-600 p-10 rounded-[3rem] text-white shadow-2xl relative overflow-hidden">
+              <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 -mr-16 -mt-16 rounded-full" />
+              <h3 className="text-xs font-black uppercase tracking-[0.2em] text-green-200 mb-6">Official Organizer</h3>
+              <div className="flex items-center gap-5">
+                 <div className="w-16 h-16 bg-white/20 backdrop-blur rounded-[1.5rem] flex items-center justify-center border border-white/30">
+                    <Trophy className="w-8 h-8 text-white" />
+                 </div>
+                 <div>
+                    <p className="font-black text-2xl italic uppercase tracking-tighter">Elite Sports</p>
+                    <div className="flex items-center gap-1.5 mt-1">
+                       <div className="w-2 h-2 bg-green-300 rounded-full" />
+                       <p className="text-[10px] font-black uppercase tracking-widest text-green-100">Verified System Organizer</p>
+                    </div>
+                 </div>
+              </div>
+              <button className="w-full mt-8 bg-white text-green-700 py-4 rounded-2xl font-black italic uppercase tracking-tighter text-sm flex items-center justify-center gap-2 hover:bg-green-50 transition-all shadow-xl">
+                 Contact Organizer <ChevronRight className="w-4 h-4" />
+              </button>
+           </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default TournamentDetailPage;

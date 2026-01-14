@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Trophy, AlertCircle, Plus, Minus, CheckCircle, ChevronLeft } from 'lucide-react';
+import { Trophy, AlertCircle, Plus, Minus, CheckCircle, ChevronLeft, Clock } from 'lucide-react';
 import { supabase } from '../services/supabase';
 import { Match, Profile } from '../types';
 
@@ -59,6 +59,14 @@ const LiveScoringPage: React.FC<LiveScoringPageProps> = ({ profile }) => {
     setLoading(false);
   };
 
+  const formatTime = (dateStr: string) => {
+    return new Date(dateStr).toLocaleTimeString('en-US', {
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true
+    });
+  };
+
   const updateScore = async (team: 1 | 2, delta: number) => {
     if (!match || !isScorer) return;
 
@@ -89,14 +97,22 @@ const LiveScoringPage: React.FC<LiveScoringPageProps> = ({ profile }) => {
     }
   };
 
-  if (loading) return <div>Loading Court...</div>;
-  if (!match) return <div>Match not found.</div>;
+  if (loading) return (
+    <div className="min-h-[400px] flex items-center justify-center">
+      <div className="flex flex-col items-center gap-4">
+        <Trophy className="w-12 h-12 text-green-600 animate-bounce" />
+        <p className="font-black italic uppercase tracking-tighter text-gray-400">Loading Court...</p>
+      </div>
+    </div>
+  );
+
+  if (!match) return <div className="p-20 text-center font-bold">Match not found.</div>;
 
   return (
     <div className="max-w-4xl mx-auto space-y-8 animate-in zoom-in duration-300">
       <div className="flex items-center justify-between">
         <button onClick={() => navigate(-1)} className="flex items-center gap-2 text-gray-500 font-medium hover:text-green-600 transition-colors">
-          <ChevronLeft className="w-5 h-5" /> Back to Dashboard
+          <ChevronLeft className="w-5 h-5" /> Back
         </button>
         <div className="flex items-center gap-2 bg-red-50 px-4 py-1.5 rounded-full border border-red-100">
           <span className="w-2 h-2 bg-red-500 rounded-full animate-ping" />
@@ -174,21 +190,21 @@ const LiveScoringPage: React.FC<LiveScoringPageProps> = ({ profile }) => {
          <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm flex items-center gap-4">
             <div className="bg-green-50 p-3 rounded-2xl text-green-600"><Trophy className="w-6 h-6" /></div>
             <div>
-               <p className="text-xs font-bold text-gray-400 uppercase">Tournament</p>
-               <p className="font-bold text-gray-800">Elite Open 2024</p>
+               <p className="text-xs font-bold text-gray-400 uppercase">Court</p>
+               <p className="font-bold text-gray-800">Main Arena #1</p>
             </div>
          </div>
          <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm flex items-center gap-4">
-            <div className="bg-blue-50 p-3 rounded-2xl text-blue-600"><Plus className="w-6 h-6" /></div>
+            <div className="bg-blue-50 p-3 rounded-2xl text-blue-600"><Clock className="w-6 h-6" /></div>
             <div>
-               <p className="text-xs font-bold text-gray-400 uppercase">Court</p>
-               <p className="font-bold text-gray-800">Court #1</p>
+               <p className="text-xs font-bold text-gray-400 uppercase">Started At</p>
+               <p className="font-bold text-gray-800">{formatTime(match.scheduled_at)}</p>
             </div>
          </div>
          <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm flex items-center gap-4">
             <div className="bg-purple-50 p-3 rounded-2xl text-purple-600"><AlertCircle className="w-6 h-6" /></div>
             <div>
-               <p className="text-xs font-bold text-gray-400 uppercase">Status</p>
+               <p className="text-xs font-bold text-gray-400 uppercase">Current Status</p>
                <p className="font-bold text-gray-800 capitalize">{match.status}</p>
             </div>
          </div>

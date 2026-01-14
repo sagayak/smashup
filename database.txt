@@ -74,7 +74,11 @@ BEGIN
         LOWER(COALESCE(NEW.raw_user_meta_data->>'username', split_part(NEW.email, '@', 1))),
         COALESCE(NEW.raw_user_meta_data->>'full_name', 'New Player'),
         COALESCE(NEW.raw_user_meta_data->>'role', 'player')
-    );
+    )
+    ON CONFLICT (id) DO UPDATE SET
+        username = EXCLUDED.username,
+        full_name = EXCLUDED.full_name,
+        role = EXCLUDED.role;
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
@@ -101,7 +105,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- 4. RLS POLICIES (CLEAN & REINSTALL)
+-- 4. RLS POLICIES (CLEAN REINSTALL)
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.tournaments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.teams ENABLE ROW LEVEL SECURITY;
@@ -126,10 +130,27 @@ CREATE POLICY "Public view teams" ON public.teams FOR SELECT USING (true);
 DROP POLICY IF EXISTS "Public view matches" ON public.matches;
 CREATE POLICY "Public view matches" ON public.matches FOR SELECT USING (true);
 
--- Enable Realtime
+-- Enable Realtime (Safe Publication Check)
 DO $$ 
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND tablename = 'matches') THEN
-    ALTER PUBLICATION supabase_realtime ADD TABLE matches, tournaments, teams, profiles;
+  IF NOT EXISTS (SELECT 1 FROM pg_publication WHERE pubname = 'supabase_realtime') THEN
+    CREATE PUBLICATION supabase_realtime;
   END IF;
+  
+  -- Add tables individually to avoid errors if already present
+  BEGIN
+    ALTER PUBLICATION supabase_realtime ADD TABLE profiles;
+  EXCEPTION WHEN others THEN END;
+  
+  BEGIN
+    ALTER PUBLICATION supabase_realtime ADD TABLE tournaments;
+  EXCEPTION WHEN others THEN END;
+  
+  BEGIN
+    ALTER PUBLICATION supabase_realtime ADD TABLE teams;
+  EXCEPTION WHEN others THEN END;
+  
+  BEGIN
+    ALTER PUBLICATION supabase_realtime ADD TABLE matches;
+  EXCEPTION WHEN others THEN END;
 END $$;

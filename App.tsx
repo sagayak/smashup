@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { HashRouter, Routes, Route, Navigate, Link, useNavigate } from 'react-router-dom';
-import { Trophy, Users, Shield, LogOut, LayoutDashboard, CreditCard, PlayCircle, Menu, X, PlusCircle, TrendingUp, Settings, AlertTriangle } from 'lucide-react';
+import { Trophy, Users, Shield, LogOut, LayoutDashboard, CreditCard, PlayCircle, Menu, X, PlusCircle, TrendingUp, Settings, AlertTriangle, Database, ExternalLink } from 'lucide-react';
 import { supabase } from './services/supabase';
 import { Profile } from './types';
 
@@ -22,80 +22,45 @@ const AppContent: React.FC = () => {
   const navigate = useNavigate();
 
   useEffect(() => {
-    if (!supabase) {
-      setLoading(false);
-      return;
-    }
-
     fetchSession();
-    
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (session) {
-        fetchProfile(session.user.id);
-      } else {
-        setProfile(null);
-        setLoading(false);
-      }
-    });
 
-    return () => subscription.unsubscribe();
-  }, []);
+    // Listen for cross-tab credit updates
+    const handleSync = (e: MessageEvent) => {
+      if (e.data.event === 'CREDIT_UPDATE' && profile && e.data.payload.id === profile.id) {
+        setProfile(prev => prev ? { ...prev, credits: e.data.payload.credits } : null);
+      }
+    };
+    const syncChannel = new BroadcastChannel('shuttleup_sync');
+    syncChannel.addEventListener('message', handleSync);
+    return () => syncChannel.removeEventListener('message', handleSync);
+  }, [profile?.id]);
 
   const fetchSession = async () => {
-    if (!supabase) return;
-    const { data: { session } } = await supabase.auth.getSession();
-    if (session) {
-      await fetchProfile(session.user.id);
-    } else {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) {
+        setProfile(session.user);
+      }
+    } catch (e) {
+      console.error("Session fetch failed", e);
+    } finally {
       setLoading(false);
     }
-  };
-
-  const fetchProfile = async (userId: string) => {
-    if (!supabase) return;
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', userId)
-      .single();
-
-    if (!error) {
-      setProfile(data);
-    }
-    setLoading(false);
   };
 
   const handleLogout = async () => {
-    if (supabase) await supabase.auth.signOut();
+    await supabase.auth.signOut();
+    setProfile(null);
     navigate('/login');
   };
-
-  if (!supabase) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-900 text-white p-6">
-        <div className="max-w-md w-full bg-gray-800 p-8 rounded-3xl border border-red-500 shadow-2xl text-center">
-          <AlertTriangle className="w-16 h-16 text-red-500 mx-auto mb-6" />
-          <h1 className="text-2xl font-black italic uppercase tracking-tighter mb-4">Connection Failed</h1>
-          <p className="text-gray-400 mb-6">
-            ShuttleUp cannot connect to the backend. Please check your Supabase environment variables (<code className="text-red-400">SUPABASE_URL</code> and <code className="text-red-400">SUPABASE_ANON_KEY</code>).
-          </p>
-          <div className="bg-black/50 p-4 rounded-xl text-xs font-mono text-left overflow-auto">
-            1. Go to Supabase Project Settings<br/>
-            2. Find API Keys<br/>
-            3. Add to Environment Variables
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-court text-white">
         <div className="text-center">
-          <Trophy className="w-16 h-16 mx-auto mb-4 animate-bounce" />
-          <h1 className="text-2xl font-bold">ShuttleUp</h1>
-          <p className="mt-2 text-green-200">Preparing the court...</p>
+          <Database className="w-16 h-16 mx-auto mb-4 animate-pulse text-green-300" />
+          <h1 className="text-3xl font-black italic uppercase tracking-tighter">ShuttleUp</h1>
+          <p className="mt-2 text-green-200 font-black italic uppercase tracking-widest text-xs">Connecting to CockroachDB Cluster...</p>
         </div>
       </div>
     );
@@ -142,7 +107,7 @@ const AppContent: React.FC = () => {
             <div className="bg-green-600 p-2 rounded-lg">
               <Trophy className="w-6 h-6 text-white" />
             </div>
-            <span className="text-xl font-bold text-gray-800 tracking-tight">ShuttleUp</span>
+            <span className="text-xl font-bold text-gray-800 tracking-tight uppercase italic">ShuttleUp</span>
           </div>
 
           <nav className="flex-1 p-4 space-y-2">
@@ -154,18 +119,18 @@ const AppContent: React.FC = () => {
                 onClick={() => setIsSidebarOpen(false)}
               >
                 <link.icon className="w-5 h-5 group-hover:scale-110 transition-transform" />
-                <span className="font-medium">{link.label}</span>
+                <span className="font-bold text-sm tracking-tight uppercase italic">{link.label}</span>
               </Link>
             ))}
           </nav>
 
           <div className="p-4 border-t border-gray-100">
-            <div className="bg-green-50 rounded-2xl p-4 mb-4">
-              <div className="flex justify-between items-center mb-1">
-                <span className="text-xs font-semibold text-green-700 uppercase">Credits</span>
-                <CreditCard className="w-4 h-4 text-green-600" />
+            <div className="bg-green-600 rounded-3xl p-5 mb-4 shadow-lg shadow-green-100 relative overflow-hidden group">
+              <div className="absolute top-0 right-0 p-2 opacity-10 group-hover:scale-125 transition-transform">
+                <CreditCard className="w-12 h-12 text-white" />
               </div>
-              <div className="text-2xl font-bold text-green-900">{profile.credits}</div>
+              <span className="text-[10px] font-black text-green-100 uppercase tracking-widest">Global Credits</span>
+              <div className="text-3xl font-black text-white italic tracking-tighter">{profile.credits}</div>
             </div>
 
             <button 
@@ -173,7 +138,7 @@ const AppContent: React.FC = () => {
               className="flex items-center gap-3 w-full px-4 py-3 text-red-600 hover:bg-red-50 rounded-xl transition-colors"
             >
               <LogOut className="w-5 h-5" />
-              <span className="font-medium">Logout</span>
+              <span className="font-bold text-sm uppercase italic">Exit Arena</span>
             </button>
           </div>
         </div>
@@ -182,13 +147,16 @@ const AppContent: React.FC = () => {
       {/* Main Content */}
       <main className="flex-1 flex flex-col min-w-0">
         <header className="sticky top-0 z-30 h-16 bg-white/80 backdrop-blur-md border-b border-gray-200 flex items-center justify-between px-6">
-          <h2 className="text-lg font-semibold text-gray-700">Welcome, {profile.full_name}</h2>
+          <div className="flex items-center gap-4">
+             <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+             <h2 className="text-sm font-black italic uppercase tracking-tighter text-gray-400">Node: Local-Cluster-01</h2>
+          </div>
           <div className="flex items-center gap-4">
              <div className="hidden sm:flex flex-col items-end">
-                <span className="text-sm font-medium text-gray-900">{profile.username}</span>
-                <span className="text-xs text-gray-500 capitalize">{profile.role}</span>
+                <span className="text-sm font-black text-gray-900 tracking-tighter italic uppercase">{profile.full_name}</span>
+                <span className="text-[9px] text-green-600 font-bold uppercase tracking-widest">{profile.role}</span>
              </div>
-             <div className="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center text-green-700 font-bold border-2 border-green-500">
+             <div className="w-10 h-10 rounded-2xl bg-gray-900 flex items-center justify-center text-white font-black italic border-2 border-green-500 shadow-md">
                 {profile.username.charAt(0).toUpperCase()}
              </div>
           </div>
