@@ -13,6 +13,7 @@ export interface Profile {
 
 export interface Tournament {
   id: string;
+  share_id: string;
   name: string;
   description: string;
   organizer_id: string;
@@ -34,6 +35,24 @@ export interface Team {
   points: number;
   wins: number;
   losses: number;
+  member_count?: number;
+}
+
+export interface TournamentParticipant {
+  id: string;
+  tournament_id: string;
+  user_id: string;
+  status: 'pending' | 'approved' | 'rejected';
+  full_name?: string;
+  username?: string;
+}
+
+export interface TeamMember {
+  id: string;
+  team_id: string;
+  user_id: string;
+  full_name?: string;
+  username?: string;
 }
 
 export interface Match {

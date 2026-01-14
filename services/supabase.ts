@@ -23,7 +23,9 @@ class CockroachDBService {
         tournaments: [],
         teams: [],
         matches: [],
-        credit_logs: []
+        credit_logs: [],
+        tournament_participants: [],
+        team_members: []
       }));
     }
   }
@@ -54,7 +56,6 @@ class CockroachDBService {
         created_at: new Date().toISOString()
       };
 
-      // In a real app, 'password' would be hashed here.
       (newUser as any).password_hash = password; 
 
       data.profiles.push(newUser);
@@ -91,13 +92,13 @@ class CockroachDBService {
       select: (query?: string) => ({
         eq: (col: string, val: any) => ({
           single: async () => {
-            const data = this.getData()[table];
+            const data = this.getData()[table] || [];
             const item = data.find((i: any) => i[col] === val);
             return { data: item || null, error: item ? null : { message: "SQL Result: 0 rows" } };
           },
           order: (colOrder: string, { ascending }: { ascending: boolean }) => ({
             then: async (resolve: any) => {
-              const data = this.getData()[table].filter((i: any) => i[col] === val);
+              const data = (this.getData()[table] || []).filter((i: any) => i[col] === val);
               data.sort((a: any, b: any) => ascending ? (a[colOrder] > b[colOrder] ? 1 : -1) : (a[colOrder] < b[colOrder] ? 1 : -1));
               resolve({ data, error: null });
             }
@@ -105,13 +106,13 @@ class CockroachDBService {
         }),
         order: (col: string, { ascending }: { ascending: boolean }) => ({
           then: async (resolve: any) => {
-            const data = [...this.getData()[table]];
+            const data = [...(this.getData()[table] || [])];
             data.sort((a: any, b: any) => ascending ? (a[col] > b[col] ? 1 : -1) : (a[col] < b[col] ? 1 : -1));
             resolve({ data, error: null });
           }
         }),
         async then(resolve: any) {
-          const data = this.getData()[table];
+          const data = this.getData()[table] || [];
           resolve({ data, error: null });
         }
       }),
@@ -120,7 +121,13 @@ class CockroachDBService {
         select: () => ({
           single: async () => {
             const data = this.getData();
-            const newRecord = { id: crypto.randomUUID(), created_at: new Date().toISOString(), ...record };
+            if (!data[table]) data[table] = [];
+            const newRecord = { 
+              id: crypto.randomUUID(), 
+              created_at: new Date().toISOString(), 
+              ...(table === 'tournaments' ? { share_id: 'SHTL-' + Math.random().toString(36).substring(2, 6).toUpperCase() } : {}),
+              ...record 
+            };
             data[table].push(newRecord);
             this.saveData(data);
             syncChannel.postMessage({ event: `${table.toUpperCase()}_UPDATE`, payload: newRecord });
@@ -129,6 +136,7 @@ class CockroachDBService {
         }),
         async then(resolve: any) {
           const data = this.getData();
+          if (!data[table]) data[table] = [];
           const newRecord = { id: crypto.randomUUID(), created_at: new Date().toISOString(), ...record };
           data[table].push(newRecord);
           this.saveData(data);
@@ -141,7 +149,7 @@ class CockroachDBService {
         eq: (col: string, val: any) => ({
           async then(resolve: any) {
             const data = this.getData();
-            data[table] = data[table].map((item: any) => 
+            data[table] = (data[table] || []).map((item: any) => 
               item[col] === val ? { ...item, ...updates } : item
             );
             this.saveData(data);
@@ -155,7 +163,7 @@ class CockroachDBService {
         eq: (col: string, val: any) => ({
           async then(resolve: any) {
             const data = this.getData();
-            data[table] = data[table].filter((item: any) => item[col] !== val);
+            data[table] = (data[table] || []).filter((item: any) => item[col] !== val);
             this.saveData(data);
             syncChannel.postMessage({ event: `${table.toUpperCase()}_DELETE`, payload: { id: val } });
             resolve({ error: null });
@@ -188,15 +196,6 @@ class CockroachDBService {
       }
     }
 
-    if (name === 'admin_reset_password') {
-      const profile = data.profiles.find((p: any) => p.id === params.target_user_id);
-      if (profile) {
-        profile.password_hash = params.new_password;
-        this.saveData(data);
-        return { error: null };
-      }
-    }
-
     if (name === 'bulk_add_teams') {
       const { tournament_id, team_names } = params;
       const newTeams = team_names.map((name: string) => ({
@@ -212,6 +211,69 @@ class CockroachDBService {
       this.saveData(data);
       syncChannel.postMessage({ event: 'TEAMS_UPDATE', payload: newTeams });
       return { data: newTeams, error: null };
+    }
+
+    if (name === 'bulk_import_participants_by_username') {
+      const { tournament_id, usernames } = params;
+      const added = [];
+      const notFound = [];
+
+      for (const username of usernames) {
+        const profile = data.profiles.find((p: any) => p.username === username.toLowerCase());
+        if (profile) {
+          const exists = data.tournament_participants.find((tp: any) => tp.tournament_id === tournament_id && tp.user_id === profile.id);
+          if (!exists) {
+            const newParticipant = {
+              id: crypto.randomUUID(),
+              tournament_id,
+              user_id: profile.id,
+              status: 'approved',
+              created_at: new Date().toISOString()
+            };
+            data.tournament_participants.push(newParticipant);
+            added.push(username);
+          }
+        } else {
+          notFound.push(username);
+        }
+      }
+      this.saveData(data);
+      syncChannel.postMessage({ event: 'PARTICIPANTS_UPDATE', payload: { tournament_id, added } });
+      return { data: { added, notFound }, error: null };
+    }
+
+    if (name === 'get_tournament_details_advanced') {
+      const tournament = data.tournaments.find((t: any) => t.id === params.tournament_id);
+      if (!tournament) return { error: "Tournament not found" };
+
+      const participants = data.tournament_participants
+        .filter((tp: any) => tp.tournament_id === params.tournament_id)
+        .map((tp: any) => {
+          const p = data.profiles.find((u: any) => u.id === tp.user_id);
+          return { ...tp, username: p?.username, full_name: p?.full_name };
+        });
+
+      const teams = data.teams
+        .filter((t: any) => t.tournament_id === params.tournament_id)
+        .map((t: any) => {
+           const members = data.team_members
+            .filter((tm: any) => tm.team_id === t.id)
+            .map((tm: any) => {
+              const p = data.profiles.find((u: any) => u.id === tm.user_id);
+              return { ...tm, username: p?.username, full_name: p?.full_name };
+            });
+           return { ...t, members, member_count: members.length };
+        });
+
+      const matches = data.matches
+        .filter((m: any) => m.tournament_id === params.tournament_id)
+        .map((m: any) => {
+           const t1 = teams.find(t => t.id === m.team1_id);
+           const t2 = teams.find(t => t.id === m.team2_id);
+           return { ...m, team1_name: t1?.name, team2_name: t2?.name };
+        });
+
+      return { data: { tournament, participants, teams, matches }, error: null };
     }
 
     return { error: { message: "SQL Function not found." } };

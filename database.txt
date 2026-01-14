@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS public.profiles (
 
 CREATE TABLE IF NOT EXISTS public.tournaments (
     id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+    share_id TEXT UNIQUE,
     name TEXT NOT NULL,
     description TEXT,
     organizer_id UUID REFERENCES public.profiles(id) NOT NULL,
@@ -32,6 +33,15 @@ CREATE TABLE IF NOT EXISTS public.tournaments (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS public.tournament_participants (
+    id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+    tournament_id UUID REFERENCES public.tournaments(id) ON DELETE CASCADE,
+    user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE,
+    status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+    UNIQUE(tournament_id, user_id)
+);
+
 CREATE TABLE IF NOT EXISTS public.teams (
     id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
     tournament_id UUID REFERENCES public.tournaments(id) ON DELETE CASCADE NOT NULL,
@@ -40,6 +50,14 @@ CREATE TABLE IF NOT EXISTS public.teams (
     wins INTEGER DEFAULT 0,
     losses INTEGER DEFAULT 0,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS public.team_members (
+    id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+    team_id UUID REFERENCES public.teams(id) ON DELETE CASCADE,
+    user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+    UNIQUE(team_id, user_id)
 );
 
 CREATE TABLE IF NOT EXISTS public.matches (
@@ -108,49 +126,21 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 -- 4. RLS POLICIES (CLEAN REINSTALL)
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.tournaments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.tournament_participants ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.teams ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.team_members ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.matches ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.credit_logs ENABLE ROW LEVEL SECURITY;
 
--- Profiles
-DROP POLICY IF EXISTS "Public profiles are viewable by everyone" ON public.profiles;
-CREATE POLICY "Public profiles are viewable by everyone" ON public.profiles FOR SELECT USING (true);
-DROP POLICY IF EXISTS "Users can update own profile" ON public.profiles;
-CREATE POLICY "Users can update own profile" ON public.profiles FOR UPDATE USING (auth.uid() = id);
-
--- Tournaments
-DROP POLICY IF EXISTS "Tournaments viewable by everyone" ON public.tournaments;
-CREATE POLICY "Tournaments viewable by everyone" ON public.tournaments FOR SELECT USING (true);
-DROP POLICY IF EXISTS "Admins host tournaments" ON public.tournaments;
-CREATE POLICY "Admins host tournaments" ON public.tournaments FOR INSERT WITH CHECK (true);
-
--- Teams & Matches
-DROP POLICY IF EXISTS "Public view teams" ON public.teams;
-CREATE POLICY "Public view teams" ON public.teams FOR SELECT USING (true);
-DROP POLICY IF EXISTS "Public view matches" ON public.matches;
-CREATE POLICY "Public view matches" ON public.matches FOR SELECT USING (true);
-
--- Enable Realtime (Safe Publication Check)
+-- Enable Realtime
 DO $$ 
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_publication WHERE pubname = 'supabase_realtime') THEN
     CREATE PUBLICATION supabase_realtime;
   END IF;
   
-  -- Add tables individually to avoid errors if already present
-  BEGIN
-    ALTER PUBLICATION supabase_realtime ADD TABLE profiles;
-  EXCEPTION WHEN others THEN END;
-  
-  BEGIN
-    ALTER PUBLICATION supabase_realtime ADD TABLE tournaments;
-  EXCEPTION WHEN others THEN END;
-  
-  BEGIN
-    ALTER PUBLICATION supabase_realtime ADD TABLE teams;
-  EXCEPTION WHEN others THEN END;
-  
-  BEGIN
-    ALTER PUBLICATION supabase_realtime ADD TABLE matches;
-  EXCEPTION WHEN others THEN END;
+  BEGIN ALTER PUBLICATION supabase_realtime ADD TABLE profiles; EXCEPTION WHEN others THEN END;
+  BEGIN ALTER PUBLICATION supabase_realtime ADD TABLE tournaments; EXCEPTION WHEN others THEN END;
+  BEGIN ALTER PUBLICATION supabase_realtime ADD TABLE teams; EXCEPTION WHEN others THEN END;
+  BEGIN ALTER PUBLICATION supabase_realtime ADD TABLE matches; EXCEPTION WHEN others THEN END;
 END $$;

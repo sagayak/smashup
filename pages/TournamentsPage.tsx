@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
-import { Trophy, Calendar, MapPin, Plus, Loader2, Search, Filter, ShieldCheck, AlertCircle } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { Trophy, Calendar, MapPin, Plus, Loader2, Search, Filter, ShieldCheck, AlertCircle, Hash, Send } from 'lucide-react';
+import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '../services/supabase';
 import { Tournament, Profile } from '../types';
 
@@ -13,12 +13,14 @@ const TournamentsPage: React.FC<TournamentsPageProps> = ({ profile }) => {
   const [tournaments, setTournaments] = useState<Tournament[]>([]);
   const [loading, setLoading] = useState(true);
   const [isCreating, setIsCreating] = useState(false);
+  const [searchId, setSearchId] = useState('');
   const [newTournament, setNewTournament] = useState({
     name: '',
     description: '',
     location_name: '',
     start_date: new Date().toISOString().split('T')[0],
   });
+  const navigate = useNavigate();
 
   useEffect(() => {
     fetchTournaments();
@@ -33,6 +35,16 @@ const TournamentsPage: React.FC<TournamentsPageProps> = ({ profile }) => {
 
     if (data) setTournaments(data);
     setLoading(false);
+  };
+
+  const handleSearchById = async () => {
+    if (!searchId) return;
+    const { data, error } = await supabase.from('tournaments').select('*').eq('share_id', searchId.toUpperCase()).single();
+    if (data) {
+      navigate(`/tournament/${data.id}`);
+    } else {
+      alert("Tournament Node not found in cluster.");
+    }
   };
 
   const handleCreate = async (e: React.FormEvent) => {
@@ -69,7 +81,7 @@ const TournamentsPage: React.FC<TournamentsPageProps> = ({ profile }) => {
     if (!insertError) {
       setIsCreating(false);
       fetchTournaments();
-      alert("Success! You are now the official organizer of this tournament.");
+      alert(`Success! Tournament Created. Share ID: ${tournament.share_id}`);
     } else {
       alert(insertError.message);
     }
@@ -83,16 +95,30 @@ const TournamentsPage: React.FC<TournamentsPageProps> = ({ profile }) => {
           <p className="text-gray-500 mt-2 font-medium">Join existing battles or pay 200c to command your own.</p>
         </div>
         
-        <button 
-          onClick={() => setIsCreating(true)}
-          className={`flex items-center gap-3 px-10 py-5 rounded-[2rem] font-black italic uppercase tracking-tighter text-xl shadow-2xl transition-all active:scale-95 group border-b-4
-            ${profile.credits >= 200 
-              ? 'bg-green-600 text-white hover:bg-green-700 shadow-green-100 border-green-800' 
-              : 'bg-gray-200 text-gray-400 cursor-not-allowed border-gray-300'}`}
-        >
-          <Plus className="w-6 h-6 group-hover:rotate-90 transition-transform" />
-          Host Arena (200c)
-        </button>
+        <div className="flex gap-4">
+          <div className="bg-white border border-gray-100 p-2 rounded-[2rem] shadow-sm flex items-center gap-2 pr-6">
+             <div className="bg-gray-100 p-3 rounded-full"><Hash className="w-5 h-5 text-gray-400" /></div>
+             <input 
+              type="text" 
+              placeholder="SHTL-XXXX"
+              className="bg-transparent border-none outline-none font-black italic tracking-tighter uppercase w-32"
+              value={searchId}
+              onChange={(e) => setSearchId(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleSearchById()}
+             />
+             <button onClick={handleSearchById} className="text-green-600 font-black uppercase tracking-widest text-[10px] hover:underline">Find</button>
+          </div>
+          <button 
+            onClick={() => setIsCreating(true)}
+            className={`flex items-center gap-3 px-10 py-5 rounded-[2rem] font-black italic uppercase tracking-tighter text-xl shadow-2xl transition-all active:scale-95 group border-b-4
+              ${profile.credits >= 200 
+                ? 'bg-green-600 text-white hover:bg-green-700 shadow-green-100 border-green-800' 
+                : 'bg-gray-200 text-gray-400 cursor-not-allowed border-gray-300'}`}
+          >
+            <Plus className="w-6 h-6 group-hover:rotate-90 transition-transform" />
+            Host Arena (200c)
+          </button>
+        </div>
       </div>
 
       <div className="grid lg:grid-cols-4 gap-8">
@@ -114,12 +140,6 @@ const TournamentsPage: React.FC<TournamentsPageProps> = ({ profile }) => {
                       </button>
                    ))}
                 </div>
-             </div>
-             <div className="bg-green-50 p-6 rounded-[2rem] border border-green-100">
-                <p className="text-[10px] font-black text-green-600 uppercase tracking-widest flex items-center gap-2 mb-2">
-                   <ShieldCheck className="w-4 h-4" /> Global Rules
-                </p>
-                <p className="text-[10px] text-green-800 font-bold leading-relaxed">Hosts have full authority over scoring and team management in their arenas.</p>
              </div>
           </div>
         </aside>
@@ -147,14 +167,13 @@ const TournamentsPage: React.FC<TournamentsPageProps> = ({ profile }) => {
                     <div className="h-48 bg-gray-100 relative overflow-hidden">
                       <img src={`https://picsum.photos/seed/${t.id}/600/400`} className="w-full h-full object-cover opacity-80 group-hover:scale-110 transition-transform duration-1000" alt="Cover" />
                       <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent" />
-                      <div className="absolute top-4 right-4">
+                      <div className="absolute top-4 right-4 flex flex-col items-end gap-2">
                          <span className="bg-white/95 backdrop-blur px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest text-green-700 shadow-xl">
                             {t.status}
                          </span>
-                      </div>
-                      <div className="absolute bottom-4 left-6">
-                         <p className="text-[10px] font-black text-white uppercase tracking-widest opacity-80">Organizer</p>
-                         <p className="text-white font-black italic uppercase tracking-tighter">Elite Sports</p>
+                         <span className="bg-gray-900 text-white px-3 py-1 rounded-full text-[9px] font-black tracking-widest uppercase border border-white/20">
+                            {t.share_id}
+                         </span>
                       </div>
                     </div>
                     <div className="p-8">
@@ -170,16 +189,12 @@ const TournamentsPage: React.FC<TournamentsPageProps> = ({ profile }) => {
                          </div>
                       </div>
                       <div className="mt-8 flex items-center justify-between pt-6 border-t border-gray-50">
-                         <div className="flex -space-x-3">
-                            {[1,2,3,4].map(i => (
-                               <div key={i} className="w-10 h-10 rounded-2xl border-4 border-white bg-gray-900 flex items-center justify-center text-[10px] font-black text-green-400 italic">
-                                  ID
-                               </div>
-                            ))}
-                            <div className="w-10 h-10 rounded-2xl border-4 border-white bg-green-100 flex items-center justify-center text-[10px] font-black text-green-700">+</div>
+                         <div className="flex items-center gap-2">
+                           <div className="w-10 h-10 rounded-2xl bg-gray-900 flex items-center justify-center text-[10px] font-black text-green-400 italic">ID</div>
+                           <span className="text-[10px] font-black uppercase tracking-widest text-gray-400 italic">Join Pool</span>
                          </div>
                          <div className="bg-green-50 text-green-600 p-3 rounded-2xl group-hover:bg-green-600 group-hover:text-white transition-all">
-                            <Plus className="w-5 h-5" />
+                            <Send className="w-5 h-5" />
                          </div>
                       </div>
                     </div>
@@ -206,13 +221,6 @@ const TournamentsPage: React.FC<TournamentsPageProps> = ({ profile }) => {
                    <p className="text-2xl font-black text-green-700 italic tracking-tighter">Bal: {profile.credits}</p>
                 </div>
               </div>
-
-              {profile.credits < 200 && (
-                <div className="mb-8 p-6 bg-red-50 border-2 border-red-100 rounded-3xl flex items-center gap-4 text-red-700">
-                  <AlertCircle className="w-6 h-6 flex-shrink-0" />
-                  <p className="text-sm font-black uppercase italic tracking-tight">Insufficient Credits. Add more in your profile.</p>
-                </div>
-              )}
 
               <form onSubmit={handleCreate} className="space-y-6">
                 <div className="space-y-6">
