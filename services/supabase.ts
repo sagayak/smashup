@@ -149,17 +149,31 @@ class CockroachDBService {
             resolve({ error: null });
           }
         })
+      }),
+
+      delete: () => ({
+        eq: (col: string, val: any) => ({
+          async then(resolve: any) {
+            const data = this.getData();
+            data[table] = data[table].filter((item: any) => item[col] !== val);
+            this.saveData(data);
+            syncChannel.postMessage({ event: `${table.toUpperCase()}_DELETE`, payload: { id: val } });
+            resolve({ error: null });
+          }
+        })
       })
     };
   }
 
   rpc = async (name: string, params: any) => {
+    const data = this.getData();
+    
     if (name === 'update_user_credits') {
-      const data = this.getData();
       const profile = data.profiles.find((p: Profile) => p.id === params.target_user_id);
       if (profile) {
-        // Atomic transaction simulation
         profile.credits += params.amount_change;
+        if (profile.credits < 0) return { error: { message: "Insufficient credits." } };
+        
         data.credit_logs.push({
           id: crypto.randomUUID(),
           user_id: params.target_user_id,
@@ -169,22 +183,37 @@ class CockroachDBService {
           created_at: new Date().toISOString()
         });
         this.saveData(data);
-
-        // Update session if user is currently logged in
-        const session = localStorage.getItem(this.sessionKey);
-        if (session) {
-          const user = JSON.parse(session);
-          if (user.id === profile.id) {
-            user.credits = profile.credits;
-            localStorage.setItem(this.sessionKey, JSON.stringify(user));
-          }
-        }
-
         syncChannel.postMessage({ event: 'CREDIT_UPDATE', payload: profile });
         return { error: null };
       }
-      return { error: { message: "User not found in cluster." } };
     }
+
+    if (name === 'admin_reset_password') {
+      const profile = data.profiles.find((p: any) => p.id === params.target_user_id);
+      if (profile) {
+        profile.password_hash = params.new_password;
+        this.saveData(data);
+        return { error: null };
+      }
+    }
+
+    if (name === 'bulk_add_teams') {
+      const { tournament_id, team_names } = params;
+      const newTeams = team_names.map((name: string) => ({
+        id: crypto.randomUUID(),
+        tournament_id,
+        name,
+        points: 0,
+        wins: 0,
+        losses: 0,
+        created_at: new Date().toISOString()
+      }));
+      data.teams.push(...newTeams);
+      this.saveData(data);
+      syncChannel.postMessage({ event: 'TEAMS_UPDATE', payload: newTeams });
+      return { data: newTeams, error: null };
+    }
+
     return { error: { message: "SQL Function not found." } };
   };
 
@@ -192,7 +221,7 @@ class CockroachDBService {
     return {
       on: (type: string, filter: any, callback: Function) => {
         const handler = (e: any) => {
-          if (e.data.event === filter.table.toUpperCase() + '_UPDATE') {
+          if (e.data.event === filter.table.toUpperCase() + '_UPDATE' || e.data.event === filter.table.toUpperCase() + '_DELETE') {
              callback({ new: e.data.payload });
           }
         };
