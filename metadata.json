@@ -1,0 +1,7 @@
+{
+  "name": "ShuttleUp",
+  "description": "Professional Badminton Tournament Management and Live Scoring Application with internal credit system and real-time updates.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}
