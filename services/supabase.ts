@@ -2,8 +2,8 @@
 import { createClient } from '@supabase/supabase-js';
 import { Profile, Tournament, Team, Match, CreditLog } from '../types';
 
-const supabaseUrl = "https://yvbvcmfonnbhzwhrzbxt.supabase.co";
-const supabaseAnonKey = "sb_publishable_t3kSHlUw6PyrywqBgZlRUA_w7DFBIPY";
+const supabaseUrl = "https://jmkbdzeyfefnoyismpli.supabase.co";
+const supabaseAnonKey = "sb_publishable_Bx7DPSE8nYSjjOzV7O9wxQ_ieaMaUzS";
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 export const isSupabaseConfigured = true;
