@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { supabase, mapUsernameToEmail } from '../services/supabase';
-import { Trophy, User, Lock, AlertCircle, CheckCircle2, WifiOff } from 'lucide-react';
+import { Trophy, User, Lock, AlertCircle, CheckCircle2, WifiOff, FileCode, Server } from 'lucide-react';
 import { UserRole } from '../types';
 
 const RegisterPage: React.FC = () => {
@@ -73,21 +73,40 @@ const RegisterPage: React.FC = () => {
           </div>
         </div>
 
-        <div className="p-12">
+        <div className="p-12 overflow-y-auto max-h-[90vh]">
           <div className="mb-10">
             <h1 className="text-4xl font-black text-gray-900 tracking-tight italic uppercase">Create Profile</h1>
             <p className="text-gray-500 mt-1 font-medium text-sm">No email verification or dashboard setup required.</p>
           </div>
 
           {error && (
-            <div className="mb-8 p-6 bg-red-50 border-2 border-red-200 rounded-[2rem] flex items-start gap-4 animate-in slide-in-from-top-2">
-              <div className="bg-red-500 p-2 rounded-xl">
-                 <WifiOff className="w-5 h-5 text-white" />
+            <div className="mb-8 p-6 bg-red-50 border-2 border-red-200 rounded-[2rem] flex flex-col gap-4 animate-in slide-in-from-top-2">
+              <div className="flex items-center gap-4">
+                <div className="bg-red-500 p-2 rounded-xl">
+                  <WifiOff className="w-5 h-5 text-white" />
+                </div>
+                <div className="text-sm text-red-700 leading-relaxed flex-1">
+                  <p className="font-black mb-1 uppercase tracking-wider text-xs italic">Cluster Connection Fault</p>
+                  <p className="font-bold text-[11px] leading-tight">{error}</p>
+                </div>
               </div>
-              <div className="text-sm text-red-700 leading-relaxed">
-                <p className="font-black mb-1 uppercase tracking-wider text-xs italic">Backend Connectivity Fault</p>
-                <p className="font-medium text-xs">{error}</p>
-                <p className="mt-2 text-[10px] opacity-60 font-bold uppercase italic">Ensure SQL schema from database.txt is deployed.</p>
+              
+              <div className="bg-white/50 p-4 rounded-2xl border border-red-100 space-y-3">
+                <p className="text-[10px] font-black uppercase text-gray-400">Troubleshooting Steps:</p>
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <FileCode className="w-3 h-3 text-red-400" />
+                    <span className="text-[10px] font-bold text-gray-600">1. Run SQL Schema in CockroachDB Console (database.txt)</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Server className="w-3 h-3 text-red-400" />
+                    <span className="text-[10px] font-bold text-gray-600">2. Verify API Key has 'Data API' permissions enabled</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <CheckCircle2 className="w-3 h-3 text-red-400" />
+                    <span className="text-[10px] font-bold text-gray-600">3. Ensure cluster name is '{formData.username ? 'badminton' : 'correct'}'</span>
+                  </div>
+                </div>
               </div>
             </div>
           )}

@@ -1,7 +1,7 @@
 
 /**
  * ShuttleUp Database Service
- * Dedicated for CockroachDB Serverless Data API.
+ * Optimized for CockroachDB Serverless Data API via CORS Proxy.
  */
 
 import { Profile, Tournament, Team, Match, CreditLog, UserRole } from '../types';
@@ -9,7 +9,7 @@ import { Profile, Tournament, Team, Match, CreditLog, UserRole } from '../types'
 // --- COCKROACHDB DATA API CONFIGURATION ---
 export const COCKROACH_CONFIG = {
   ENABLED: true, 
-  USE_PROXY: true, // Set to true to bypass browser CORS restrictions
+  USE_PROXY: true, // Required for browser-to-CockroachDB communication
   BASE_URL: 'https://api.cockroachlabs.cloud/v1/clusters/981e97c4-344d-4f2c-a9e9-d726f27f6b83/sql',
   API_KEY: 'CCDB1_2saEIW8Qkw8WCo09DvbO9c_zhu4T1zHTImuNmpDpsFabVBE6fpGvWH2HCxQb4LW',
   CLUSTER_NAME: 'badminton',
@@ -17,7 +17,6 @@ export const COCKROACH_CONFIG = {
 };
 // ------------------------------------------
 
-// Helper to escape SQL strings
 const esc = (str: any) => {
   if (typeof str !== 'string') return str;
   return str.replace(/'/g, "''");
@@ -28,12 +27,12 @@ class CockroachService {
 
   private async execute(sql: string): Promise<{ data: any; error: any }> {
     if (!COCKROACH_CONFIG.ENABLED) {
-      return { data: null, error: { message: "Cloud connection is disabled in config." } };
+      return { data: null, error: { message: "Cloud connection disabled." } };
     }
 
-    // Wrap URL in proxy if enabled
+    // Using corsproxy.io which is more reliable for POST + Auth headers
     const targetUrl = COCKROACH_CONFIG.USE_PROXY 
-      ? `https://api.allorigins.win/raw?url=${encodeURIComponent(COCKROACH_CONFIG.BASE_URL)}`
+      ? `https://corsproxy.io/?${encodeURIComponent(COCKROACH_CONFIG.BASE_URL)}`
       : COCKROACH_CONFIG.BASE_URL;
 
     try {
@@ -50,23 +49,31 @@ class CockroachService {
         })
       });
 
+      if (response.status === 401 || response.status === 403) {
+        return { data: null, error: { message: "AUTH_FAILURE: API Key is invalid or restricted. Check Cockroach Console." } };
+      }
+
       const result = await response.json();
 
       if (!response.ok) {
-        const msg = result.message || result.error || 'Database operation failed.';
+        const msg = result.message || result.error || `Database Error (${response.status})`;
+        // If message contains "table ... does not exist", the user forgot to run SQL
+        if (msg.toLowerCase().includes("does not exist")) {
+          return { data: null, error: { message: `SCHEMA_MISSING: Table not found. Please run the SQL from database.txt in your CockroachDB SQL Console.` } };
+        }
         return { data: null, error: { message: msg, status: response.status } };
       }
 
       return { data: result.rows || [], error: null };
     } catch (err: any) {
-      console.error("Fetch Error Detail:", err);
-      const isNetworkError = err.message === 'Failed to fetch';
+      console.error("Connectivity Diagnostic:", err);
       return { 
         data: null, 
         error: { 
-          message: isNetworkError 
-            ? "CORS/NETWORK BLOCK: Browser blocked the connection. Ensure USE_PROXY is enabled in services/supabase.ts." 
-            : err.message 
+          message: `NETWORK_FAULT: Could not reach the cluster. Possible reasons: 
+1. The CORS Proxy is down.
+2. Your network blocks requests to CockroachDB.
+3. The SQL Schema (database.txt) has not been deployed to the '${COCKROACH_CONFIG.DATABASE}' database.` 
         } 
       };
     }
