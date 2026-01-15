@@ -8,11 +8,6 @@ const supabaseAnonKey = "sb_publishable_t3kSHlUw6PyrywqBgZlRUA_w7DFBIPY";
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 export const isSupabaseConfigured = true;
 
-/** 
- * CRITICAL FIX: 
- * Using .com instead of .internal because Supabase Auth 
- * requires a standard TLD to pass email validation.
- */
 const mapUsernameToEmail = (username: string) => `${username.toLowerCase().trim()}@shuttleup.com`;
 
 export const dbService = {
@@ -24,26 +19,13 @@ export const dbService = {
         password: password || "shuttleup123",
         options: { 
           data: { 
-            username: username.toLowerCase(), 
+            username: username.toLowerCase().trim(), 
             full_name: fullName, 
             role 
           } 
         }
       });
-      
       if (error) throw error;
-      
-      // Secondary profile creation for our internal credits/role system
-      if (data.user) {
-        const { error: profileError } = await supabase.from('profiles').insert({
-          id: data.user.id,
-          username: username.toLowerCase(),
-          full_name: fullName,
-          role,
-          credits: 500
-        });
-        if (profileError) console.error("Profile sync error:", profileError);
-      }
       return data;
     },
     signIn: async (username: string, password?: string) => {
@@ -53,7 +35,12 @@ export const dbService = {
         password: password || "shuttleup123"
       });
       
-      if (error) throw error;
+      if (error) {
+        if (error.message.includes("Email not confirmed")) {
+          throw new Error("ACCESS BLOCKED: Please disable 'Confirm email' in your Supabase Auth Settings.");
+        }
+        throw error;
+      }
       
       const { data: profile, error: profileError } = await supabase
         .from('profiles')
@@ -61,8 +48,19 @@ export const dbService = {
         .eq('id', data.user.id)
         .single();
         
-      if (profileError) throw new Error("Profile node not found in cluster.");
+      if (profileError) throw new Error("Profile entry not yet synced. Try again in 3 seconds.");
       return profile as Profile;
+    },
+    signInWithGoogle: async () => {
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          // Use the current origin to ensure it works in both dev and prod
+          redirectTo: `${window.location.origin}${window.location.pathname}`.replace(/\/$/, '')
+        }
+      });
+      if (error) throw error;
+      return data;
     },
     signOut: () => supabase.auth.signOut()
   },
