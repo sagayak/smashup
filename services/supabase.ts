@@ -7,8 +7,8 @@
 import { Profile, Tournament, Team, Match, CreditLog, UserRole } from '../types';
 
 // --- COCKROACHDB DATA API CONFIGURATION ---
-const COCKROACH_CONFIG = {
-  ENABLED: false, 
+export const COCKROACH_CONFIG = {
+  ENABLED: true, // CLOUD BACKEND ENABLED
   BASE_URL: 'https://api.cockroachlabs.cloud/v1/clusters/981e97c4-344d-4f2c-a9e9-d726f27f6b83/sql',
   API_KEY: 'CCDB1_2saEIW8Qkw8WCo09DvbO9c_zhu4T1zHTImuNmpDpsFabVBE6fpGvWH2HCxQb4LW',
   CLUSTER_NAME: 'badminton',
@@ -76,8 +76,10 @@ class CockroachService {
 
       const result = await response.json();
       if (!response.ok) throw new Error(result.message || 'Database link failed.');
-      return { data: result.rows, error: null };
+      // Data API returns { rows: [...] }
+      return { data: result.rows || [], error: null };
     } catch (err: any) {
+      console.error("Database Execution Error:", err);
       return { data: null, error: err };
     }
   }
@@ -85,6 +87,24 @@ class CockroachService {
   private async executeMock(sql: string, params: any): Promise<any> {
     const data = this.getData();
     
+    // Auth related mock
+    if (sql.includes('SELECT * FROM profiles WHERE username =')) {
+        const username = sql.match(/username = '(.+?)'/)?.[1];
+        const user = data.profiles.find((p: any) => p.username === username);
+        return { data: user ? [user] : [], error: null };
+    }
+
+    if (sql.includes('INSERT INTO profiles')) {
+        const match = sql.match(/VALUES \('(.+?)', '(.+?)', '(.+?)', '(.+?)', '(.+?)', (.+?), '(.+?)'\)/);
+        if (match) {
+            const [_, id, username, full_name, password_hash, role, credits, created_at] = match;
+            const newUser = { id, username, full_name, password_hash, role, credits: parseInt(credits), created_at };
+            data.profiles.push(newUser);
+            this.saveData(data);
+            return { data: [newUser], error: null };
+        }
+    }
+
     if (sql.includes('INSERT INTO team_members')) {
         const match = sql.match(/VALUES \('(.+?)', '(.+?)'\)/);
         if (match) {
@@ -154,30 +174,33 @@ class CockroachService {
   auth = {
     signUp: async ({ options, password }: { email: string, password?: string, options: any }) => {
       const { username, full_name, role } = options.data;
-      const data = this.getData();
-      if (data.profiles.find((p: any) => p.username === username.toLowerCase())) {
-        return { error: { message: "Username already exists." } };
+      const usernameLower = username.toLowerCase();
+      
+      // Check existing
+      const { data: existing } = await this.execute(`SELECT * FROM profiles WHERE username = '${usernameLower}'`);
+      if (existing && existing.length > 0) {
+        return { error: { message: "Username already exists in the cluster." } };
       }
-      const newUser: Profile = {
-        id: crypto.randomUUID(),
-        username: username.toLowerCase(),
-        full_name,
-        role: role as UserRole,
-        credits: 500,
-        created_at: new Date().toISOString()
-      };
-      (newUser as any).password_hash = password; 
-      data.profiles.push(newUser);
-      this.saveData(data);
-      return { data: { user: newUser }, error: null };
+
+      const id = crypto.randomUUID();
+      const createdAt = new Date().toISOString();
+      const sql = `INSERT INTO profiles (id, username, full_name, password_hash, role, credits, created_at) VALUES ('${id}', '${usernameLower}', '${full_name}', '${password}', '${role}', 500, '${createdAt}') RETURNING *`;
+      
+      const { data, error } = await this.execute(sql);
+      if (error) return { error };
+      
+      return { data: { user: data[0] }, error: null };
     },
 
     signInWithPassword: async ({ email, password }: { email: string, password?: string }) => {
       const username = email.split('@')[0].toLowerCase();
-      const data = this.getData();
-      const profile = data.profiles.find((p: any) => p.username === username && p.password_hash === password);
-      if (!profile) return { error: { message: "Invalid credentials." } };
-      const user = { ...profile };
+      const sql = `SELECT * FROM profiles WHERE username = '${username}' AND password_hash = '${password}' LIMIT 1`;
+      
+      const { data, error } = await this.execute(sql);
+      if (error) return { error };
+      if (!data || data.length === 0) return { error: { message: "Invalid credentials." } };
+
+      const user = { ...data[0] };
       delete user.password_hash;
       localStorage.setItem(this.sessionKey, JSON.stringify(user));
       return { data: { user }, error: null };
@@ -226,44 +249,52 @@ class CockroachService {
             const result = await service.execute(`INSERT INTO ${table} (${keys}) VALUES (${vals}) RETURNING *`);
             resolve(result);
         }
+      }),
+      delete: () => ({
+        eq: (col: string, val: any) => ({
+            then: async (resolve: any) => {
+                const result = await service.execute(`DELETE FROM ${table} WHERE ${col} = '${val}'`);
+                resolve(result);
+            }
+        })
       })
     };
   }
 
   rpc = async (name: string, params: any) => {
-    const data = this.getData();
     if (name === 'get_tournament_details_advanced') {
       const tId = params.tournament_id;
-      const tournament = data.tournaments.find((t: any) => t.id === tId);
-      if (!tournament) return { data: null, error: { message: "Tournament not found" } };
       
-      const participants = (data.tournament_participants || [])
-        .filter((tp: any) => tp.tournament_id === tId)
-        .map((tp: any) => {
-          const p = data.profiles.find((u: any) => u.id === tp.user_id);
-          return { ...tp, username: p?.username, full_name: p?.full_name };
-        });
+      // Sequential queries for cloud, combined in memory
+      const [tRes, pRes, teamsRes, matchRes, profRes, tmRes] = await Promise.all([
+        this.execute(`SELECT * FROM tournaments WHERE id = '${tId}' LIMIT 1`),
+        this.execute(`SELECT * FROM tournament_participants WHERE tournament_id = '${tId}'`),
+        this.execute(`SELECT * FROM teams WHERE tournament_id = '${tId}'`),
+        this.execute(`SELECT * FROM matches WHERE tournament_id = '${tId}'`),
+        this.execute(`SELECT id, username, full_name FROM profiles`),
+        this.execute(`SELECT tm.*, p.username, p.full_name FROM team_members tm JOIN profiles p ON tm.user_id = p.id`)
+      ]);
 
-      const teams = (data.teams || [])
-        .filter((t: any) => t.tournament_id === tId)
-        .map((t: any) => {
-            const members = (data.team_members || [])
-                .filter((tm: any) => tm.team_id === t.id)
-                .map((tm: any) => {
-                    const p = data.profiles.find((u: any) => u.id === tm.user_id);
-                    return { ...tm, username: p?.username, full_name: p?.full_name };
-                });
-            return { ...t, members, member_count: members.length };
-        });
+      const tournament = tRes.data?.[0];
+      if (!tournament) return { data: null, error: { message: "Tournament node not found." } };
 
-      const matches = (data.matches || [])
-        .filter((m: any) => m.tournament_id === tId)
-        .map((m: any) => {
-            const t1 = teams.find(t => t.id === m.team1_id);
-            const t2 = teams.find(t => t.id === m.team2_id);
-            return { ...m, team1_name: t1?.name, team2_name: t2?.name };
-        });
-      
+      const allProfiles = profRes.data || [];
+      const participants = (pRes.data || []).map((tp: any) => {
+        const p = allProfiles.find((u: any) => u.id === tp.user_id);
+        return { ...tp, username: p?.username, full_name: p?.full_name };
+      });
+
+      const teams = (teamsRes.data || []).map((t: any) => {
+        const members = (tmRes.data || []).filter((tm: any) => tm.team_id === t.id);
+        return { ...t, members, member_count: members.length };
+      });
+
+      const matches = (matchRes.data || []).map((m: any) => {
+        const t1 = teams.find(t => t.id === m.team1_id);
+        const t2 = teams.find(t => t.id === m.team2_id);
+        return { ...m, team1_name: t1?.name, team2_name: t2?.name };
+      });
+
       return { 
         data: { tournament, participants, teams, matches }, 
         error: null 
@@ -271,16 +302,21 @@ class CockroachService {
     }
     
     if (name === 'update_user_credits') {
-      const { target_user_id, amount_change } = params;
-      const profiles = data.profiles.map((p: any) => 
-        p.id === target_user_id ? { ...p, credits: p.credits + amount_change } : p
-      );
-      data.profiles = profiles;
-      this.saveData(data);
-      return { data: profiles.find((p:any) => p.id === target_user_id), error: null };
+      const { target_user_id, amount_change, log_description, log_action } = params;
+      
+      const sql = `UPDATE profiles SET credits = credits + ${amount_change} WHERE id = '${target_user_id}' RETURNING *`;
+      const { data, error } = await this.execute(sql);
+      
+      if (!error && data && data.length > 0) {
+        // Log it as well
+        const logSql = `INSERT INTO credit_logs (id, user_id, amount, action_type, description, created_at) VALUES ('${crypto.randomUUID()}', '${target_user_id}', ${amount_change}, '${log_action}', '${log_description}', '${new Date().toISOString()}')`;
+        await this.execute(logSql);
+        return { data: data[0], error: null };
+      }
+      return { data: null, error: error || { message: "User not found or credit update failed." } };
     }
 
-    return { data: null, error: { message: "Procedure not mapped." } };
+    return { data: null, error: { message: "Remote Procedure Call not mapped for this environment." } };
   };
 
   channel() { return { on: () => ({ subscribe: () => ({}) }), subscribe: () => ({}) }; }

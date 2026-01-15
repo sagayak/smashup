@@ -1,8 +1,8 @@
 
 import React, { useState, useEffect } from 'react';
 import { HashRouter, Routes, Route, Navigate, Link, useNavigate } from 'react-router-dom';
-import { Trophy, Users, Shield, LogOut, LayoutDashboard, CreditCard, PlayCircle, Menu, X, PlusCircle, TrendingUp, Settings, AlertTriangle, Database, ExternalLink } from 'lucide-react';
-import { supabase } from './services/supabase';
+import { Trophy, Users, Shield, LogOut, LayoutDashboard, CreditCard, PlayCircle, Menu, X, PlusCircle, TrendingUp, Settings, AlertTriangle, Database, ExternalLink, Wifi, WifiOff } from 'lucide-react';
+import { supabase, COCKROACH_CONFIG } from './services/supabase';
 import { Profile } from './types';
 
 // Pages
@@ -11,8 +11,8 @@ import RegisterPage from './pages/RegisterPage';
 import DashboardPage from './pages/DashboardPage';
 import TournamentsPage from './pages/TournamentsPage';
 import TournamentDetailPage from './pages/TournamentDetailPage';
-import SuperAdminPage from './pages/SuperAdminPage';
 import LiveScoringPage from './pages/LiveScoringPage';
+import SuperAdminPage from './pages/SuperAdminPage';
 import ProfilePage from './pages/ProfilePage';
 
 const AppContent: React.FC = () => {
@@ -26,20 +26,31 @@ const AppContent: React.FC = () => {
 
     // Listen for cross-tab credit updates
     const handleSync = (e: MessageEvent) => {
-      if (e.data.event === 'CREDIT_UPDATE' && profile && e.data.payload.id === profile.id) {
-        setProfile(prev => prev ? { ...prev, credits: e.data.payload.credits } : null);
+      if (e.data.event === 'CREDIT_UPDATE') {
+        const payload = e.data.payload;
+        setProfile(prev => {
+          if (prev && prev.id === payload.id) {
+            return { ...prev, credits: payload.credits };
+          }
+          return prev;
+        });
       }
     };
+
     const syncChannel = new BroadcastChannel('shuttleup_sync');
     syncChannel.addEventListener('message', handleSync);
-    return () => syncChannel.removeEventListener('message', handleSync);
-  }, [profile?.id]);
+    
+    return () => {
+      syncChannel.removeEventListener('message', handleSync);
+      syncChannel.close();
+    };
+  }, []);
 
   const fetchSession = async () => {
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session) {
-        setProfile(session.user);
+      const { data } = await supabase.auth.getSession();
+      if (data?.session) {
+        setProfile(data.session.user);
       }
     } catch (e) {
       console.error("Session fetch failed", e);
@@ -148,8 +159,18 @@ const AppContent: React.FC = () => {
       <main className="flex-1 flex flex-col min-w-0">
         <header className="sticky top-0 z-30 h-16 bg-white/80 backdrop-blur-md border-b border-gray-200 flex items-center justify-between px-6">
           <div className="flex items-center gap-4">
-             <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-             <h2 className="text-sm font-black italic uppercase tracking-tighter text-gray-400">Node: Local-Cluster-01</h2>
+             {COCKROACH_CONFIG.ENABLED ? (
+               <div className="flex items-center gap-2 px-3 py-1 bg-green-50 text-green-600 rounded-full border border-green-100">
+                  <Wifi className="w-3 h-3" />
+                  <span className="text-[10px] font-black uppercase tracking-widest">Cloud: {COCKROACH_CONFIG.CLUSTER_NAME || 'Active'}</span>
+               </div>
+             ) : (
+               <div className="flex items-center gap-2 px-3 py-1 bg-yellow-50 text-yellow-600 rounded-full border border-yellow-100 animate-pulse">
+                  <WifiOff className="w-3 h-3" />
+                  <span className="text-[10px] font-black uppercase tracking-widest">Demo Mode (Local)</span>
+               </div>
+             )}
+             <h2 className="hidden sm:block text-sm font-black italic uppercase tracking-tighter text-gray-400">Node: Local-Cluster-01</h2>
           </div>
           <div className="flex items-center gap-4">
              <div className="hidden sm:flex flex-col items-end">

@@ -1,146 +1,80 @@
-
--- SHUTTLEUP SUPABASE SCHEMA (IDEMPOTENT)
+-- SHUTTLEUP COCKROACHDB SCHEMA (COMPLETE)
 -- Professional Badminton Tournament Management
 
--- 1. EXTENSIONS
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
-
--- 2. TABLES
-CREATE TABLE IF NOT EXISTS public.profiles (
-    id UUID REFERENCES auth.users ON DELETE CASCADE PRIMARY KEY,
-    username TEXT UNIQUE NOT NULL,
-    full_name TEXT NOT NULL,
-    email TEXT,
-    role TEXT NOT NULL DEFAULT 'player' CHECK (role IN ('superadmin', 'admin', 'player', 'scorer')),
-    credits INTEGER NOT NULL DEFAULT 0 CHECK (credits >= 0),
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
+-- 1. PROFILES & AUTH
+CREATE TABLE IF NOT EXISTS profiles (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    username STRING UNIQUE NOT NULL,
+    full_name STRING NOT NULL,
+    password_hash STRING NOT NULL,
+    role STRING NOT NULL CHECK (role IN ('superadmin', 'admin', 'player', 'scorer')),
+    credits INT8 NOT NULL DEFAULT 500,
+    created_at TIMESTAMPTZ DEFAULT now()
 );
 
-CREATE TABLE IF NOT EXISTS public.tournaments (
-    id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
-    share_id TEXT UNIQUE,
-    name TEXT NOT NULL,
-    description TEXT,
-    organizer_id UUID REFERENCES public.profiles(id) NOT NULL,
-    status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'published', 'finished', 'cancelled')),
-    cost_to_host INTEGER NOT NULL DEFAULT 200,
-    is_locked BOOLEAN DEFAULT FALSE,
-    location_name TEXT,
-    latitude DOUBLE PRECISION,
-    longitude DOUBLE PRECISION,
+-- 2. TOURNAMENTS
+CREATE TABLE IF NOT EXISTS tournaments (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    share_id STRING UNIQUE DEFAULT concat('SHTL-', upper(substring(md5(random()::text), 1, 6))),
+    name STRING NOT NULL,
+    description STRING,
+    organizer_id UUID REFERENCES profiles(id),
+    status STRING DEFAULT 'draft' CHECK (status IN ('draft', 'published', 'finished', 'cancelled')),
     start_date DATE,
-    rules_handbook TEXT,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
+    location_name STRING,
+    rules_handbook STRING,
+    created_at TIMESTAMPTZ DEFAULT now()
 );
 
-CREATE TABLE IF NOT EXISTS public.tournament_participants (
-    id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
-    tournament_id UUID REFERENCES public.tournaments(id) ON DELETE CASCADE,
-    user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE,
-    status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
-    UNIQUE(tournament_id, user_id)
+-- 3. TEAMS
+CREATE TABLE IF NOT EXISTS teams (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tournament_id UUID REFERENCES tournaments(id) ON DELETE CASCADE,
+    name STRING NOT NULL,
+    points INT8 DEFAULT 0,
+    wins INT8 DEFAULT 0,
+    losses INT8 DEFAULT 0,
+    created_at TIMESTAMPTZ DEFAULT now()
 );
 
-CREATE TABLE IF NOT EXISTS public.teams (
-    id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
-    tournament_id UUID REFERENCES public.tournaments(id) ON DELETE CASCADE NOT NULL,
-    name TEXT NOT NULL,
-    points INTEGER DEFAULT 0,
-    wins INTEGER DEFAULT 0,
-    losses INTEGER DEFAULT 0,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
+-- 4. PARTICIPANTS & MEMBERS
+CREATE TABLE IF NOT EXISTS tournament_participants (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tournament_id UUID REFERENCES tournaments(id) ON DELETE CASCADE,
+    user_id UUID REFERENCES profiles(id) ON DELETE CASCADE,
+    status STRING DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
+    created_at TIMESTAMPTZ DEFAULT now(),
+    UNIQUE (tournament_id, user_id)
 );
 
-CREATE TABLE IF NOT EXISTS public.team_members (
-    id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
-    team_id UUID REFERENCES public.teams(id) ON DELETE CASCADE,
-    user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
-    UNIQUE(team_id, user_id)
+CREATE TABLE IF NOT EXISTS team_members (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    team_id UUID REFERENCES teams(id) ON DELETE CASCADE,
+    user_id UUID REFERENCES profiles(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ DEFAULT now(),
+    UNIQUE (team_id, user_id)
 );
 
-CREATE TABLE IF NOT EXISTS public.matches (
-    id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
-    tournament_id UUID REFERENCES public.tournaments(id) ON DELETE CASCADE NOT NULL,
-    team1_id UUID REFERENCES public.teams(id) ON DELETE CASCADE NOT NULL,
-    team2_id UUID REFERENCES public.teams(id) ON DELETE CASCADE NOT NULL,
-    score1 INTEGER DEFAULT 0,
-    score2 INTEGER DEFAULT 0,
-    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'live', 'completed')),
-    scheduled_at TIMESTAMP WITH TIME ZONE NOT NULL,
-    completed_at TIMESTAMP WITH TIME ZONE,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
+-- 5. MATCHES & SCORING
+CREATE TABLE IF NOT EXISTS matches (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tournament_id UUID REFERENCES tournaments(id) ON DELETE CASCADE,
+    team1_id UUID REFERENCES teams(id) ON DELETE CASCADE,
+    team2_id UUID REFERENCES teams(id) ON DELETE CASCADE,
+    score1 INT8 DEFAULT 0,
+    score2 INT8 DEFAULT 0,
+    status STRING DEFAULT 'pending' CHECK (status IN ('pending', 'live', 'completed')),
+    scheduled_at TIMESTAMPTZ NOT NULL,
+    completed_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT now()
 );
 
-CREATE TABLE IF NOT EXISTS public.credit_logs (
-    id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
-    user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL,
-    amount INTEGER NOT NULL,
-    action_type TEXT NOT NULL,
-    description TEXT,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
+-- 6. AUDIT & CREDITS
+CREATE TABLE IF NOT EXISTS credit_logs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID REFERENCES profiles(id) ON DELETE CASCADE,
+    amount INT8 NOT NULL,
+    action_type STRING NOT NULL,
+    description STRING,
+    created_at TIMESTAMPTZ DEFAULT now()
 );
-
--- 3. FUNCTIONS & TRIGGERS
-CREATE OR REPLACE FUNCTION public.handle_new_user()
-RETURNS TRIGGER AS $$
-BEGIN
-    INSERT INTO public.profiles (id, username, full_name, role)
-    VALUES (
-        NEW.id,
-        LOWER(COALESCE(NEW.raw_user_meta_data->>'username', split_part(NEW.email, '@', 1))),
-        COALESCE(NEW.raw_user_meta_data->>'full_name', 'New Player'),
-        COALESCE(NEW.raw_user_meta_data->>'role', 'player')
-    )
-    ON CONFLICT (id) DO UPDATE SET
-        username = EXCLUDED.username,
-        full_name = EXCLUDED.full_name,
-        role = EXCLUDED.role;
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
-DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
-CREATE TRIGGER on_auth_user_created
-    AFTER INSERT ON auth.users
-    FOR EACH ROW EXECUTE PROCEDURE public.handle_new_user();
-
-CREATE OR REPLACE FUNCTION public.update_user_credits(
-    target_user_id UUID,
-    amount_change INTEGER,
-    log_description TEXT,
-    log_action TEXT
-)
-RETURNS VOID AS $$
-BEGIN
-    UPDATE public.profiles
-    SET credits = credits + amount_change
-    WHERE id = target_user_id;
-
-    INSERT INTO public.credit_logs (user_id, amount, action_type, description)
-    VALUES (target_user_id, amount_change, log_action, log_description);
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
--- 4. RLS POLICIES (CLEAN REINSTALL)
-ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.tournaments ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.tournament_participants ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.teams ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.team_members ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.matches ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.credit_logs ENABLE ROW LEVEL SECURITY;
-
--- Enable Realtime
-DO $$ 
-BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_publication WHERE pubname = 'supabase_realtime') THEN
-    CREATE PUBLICATION supabase_realtime;
-  END IF;
-  
-  BEGIN ALTER PUBLICATION supabase_realtime ADD TABLE profiles; EXCEPTION WHEN others THEN END;
-  BEGIN ALTER PUBLICATION supabase_realtime ADD TABLE tournaments; EXCEPTION WHEN others THEN END;
-  BEGIN ALTER PUBLICATION supabase_realtime ADD TABLE teams; EXCEPTION WHEN others THEN END;
-  BEGIN ALTER PUBLICATION supabase_realtime ADD TABLE matches; EXCEPTION WHEN others THEN END;
-END $$;
