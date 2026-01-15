@@ -1,9 +1,8 @@
 
 import React, { useState, useEffect } from 'react';
-import { Trophy, Calendar, MapPin, Plus, Loader2, Search, Filter, ShieldCheck, AlertCircle, Hash, Send, Crosshair } from 'lucide-react';
+import { Trophy, Calendar, MapPin, Plus, Loader2, Search, Hash, Send, Crosshair } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
-import { db, dbService } from '../services/firebase';
-import { collection, query, orderBy, onSnapshot, where, getDocs } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js';
+import { supabase, dbService } from '../services/supabase';
 import { Tournament, Profile } from '../types';
 
 interface TournamentsPageProps {
@@ -26,12 +25,25 @@ const TournamentsPage: React.FC<TournamentsPageProps> = ({ profile }) => {
   const navigate = useNavigate();
 
   useEffect(() => {
-    const q = query(collection(db, "tournaments"), orderBy("created_at", "desc"));
-    const unsub = onSnapshot(q, (snap) => {
-      setTournaments(snap.docs.map(d => d.data() as Tournament));
+    if (!supabase) return;
+
+    const fetchTournaments = async () => {
+      const { data } = await supabase
+        .from('tournaments')
+        .select('*')
+        .order('created_at', { ascending: false });
+      
+      if (data) setTournaments(data as Tournament[]);
       setLoading(false);
-    });
-    return () => unsub();
+    };
+
+    fetchTournaments();
+
+    const channel = supabase.channel('tournaments-feed')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'tournaments' }, fetchTournaments)
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
   }, []);
 
   const handleLocateMe = () => {
@@ -47,12 +59,14 @@ const TournamentsPage: React.FC<TournamentsPageProps> = ({ profile }) => {
   };
 
   const handleSearchById = async () => {
-    if (!searchId) return;
-    const q = query(collection(db, "tournaments"), where("share_id", "==", searchId.toUpperCase()));
-    const snap = await getDocs(q);
+    if (!searchId || !supabase) return;
+    const { data } = await supabase
+      .from('tournaments')
+      .select('*')
+      .eq('share_id', searchId.toUpperCase())
+      .single();
     
-    if (!snap.empty) {
-      const data = snap.docs[0].data() as Tournament;
+    if (data) {
       navigate(`/tournament/${data.id}`);
     } else {
       alert("Tournament Node not found in cluster.");
@@ -92,7 +106,7 @@ const TournamentsPage: React.FC<TournamentsPageProps> = ({ profile }) => {
     <div className="space-y-8 animate-in fade-in duration-500">
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-8">
         <div>
-          <h1 className="text-5xl font-black text-gray-900 italic tracking-tighter uppercase leading-none">Tournament<br/>Arena</h1>
+          <h1 className="text-5xl font-black text-gray-900 italic uppercase tracking-tighter leading-none">Tournament<br/>Arena</h1>
           <p className="text-gray-500 mt-2 font-medium">Join existing battles or pay 200c to command your own.</p>
         </div>
         

@@ -1,12 +1,10 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { Trophy, Users, LayoutGrid, PlusCircle, UserPlus, X, Check, UserCheck, Shield, Info, RefreshCw, MapPin, Hash, Play, Calendar, Download, UserCircle, Map as MapIcon } from 'lucide-react';
-import { db, dbService } from '../services/firebase';
-import { doc, onSnapshot, collection, query, where, getDocs, addDoc, orderBy } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js';
-import { Tournament, Team, Match, Profile, TournamentParticipant, TeamMember } from '../types';
+import { Trophy, PlusCircle, UserPlus, X, Check, MapPin, Hash, Play, Calendar, Download, ChevronLeft } from 'lucide-react';
+import { supabase, dbService } from '../services/supabase';
+import { Tournament, Team, Match, Profile } from '../types';
 
-// Fix: Declare google global variable for Google Maps API to satisfy TypeScript
 declare const google: any;
 
 interface TournamentDetailPageProps {
@@ -17,60 +15,50 @@ const TournamentDetailPage: React.FC<TournamentDetailPageProps> = ({ profile }) 
   const { id } = useParams<{ id: string }>();
   const [tournament, setTournament] = useState<Tournament | null>(null);
   const [teams, setTeams] = useState<Team[]>([]);
-  const [participants, setParticipants] = useState<TournamentParticipant[]>([]);
   const [matches, setMatches] = useState<Match[]>([]);
-  const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'standings' | 'matches' | 'info' | 'admin'>('standings');
   const mapRef = useRef<HTMLDivElement>(null);
   
-  const [isRecruiting, setIsRecruiting] = useState(false);
-  const [recruitInput, setRecruitInput] = useState('');
   const [isCreatingTeam, setIsCreatingTeam] = useState(false);
   const [newTeamName, setNewTeamName] = useState('');
   
   const [isScheduling, setIsScheduling] = useState(false);
   const [scheduleData, setScheduleData] = useState({ team1Id: '', team2Id: '', time: '' });
-  const [isAssigning, setIsAssigning] = useState<TournamentParticipant | null>(null);
 
   const navigate = useNavigate();
 
   useEffect(() => {
-    if (!id) return;
+    if (!id || !supabase) return;
 
-    const unsubT = onSnapshot(doc(db, "tournaments", id), (snap) => {
-      if (snap.exists()) setTournament(snap.data() as Tournament);
+    const fetchData = async () => {
+      const { data: tourney } = await supabase.from('tournaments').select('*').eq('id', id).single();
+      if (tourney) setTournament(tourney as Tournament);
+
+      const { data: teamData } = await supabase.from('teams').select('*').eq('tournament_id', id).order('points', { ascending: false });
+      if (teamData) setTeams(teamData as Team[]);
+
+      const { data: matchData } = await supabase.from('matches').select('*').eq('tournament_id', id).order('scheduled_at', { ascending: false });
+      if (matchData) setMatches(matchData as Match[]);
+
       setLoading(false);
-    });
+    };
 
-    const qTeams = query(collection(db, "teams"), where("tournament_id", "==", id), orderBy("points", "desc"));
-    const unsubTeams = onSnapshot(qTeams, (snap) => {
-      setTeams(snap.docs.map(d => d.data() as Team));
-    });
+    fetchData();
 
-    const qMatches = query(collection(db, "matches"), where("tournament_id", "==", id), orderBy("scheduled_at", "desc"));
-    const unsubMatches = onSnapshot(qMatches, (snap) => {
-      setMatches(snap.docs.map(d => d.data() as Match));
-    });
+    const tSub = supabase.channel(`tourney-${id}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'tournaments', filter: `id=eq.${id}` }, fetchData)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'teams', filter: `tournament_id=eq.${id}` }, fetchData)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'matches', filter: `tournament_id=eq.${id}` }, fetchData)
+      .subscribe();
 
-    const qParts = query(collection(db, "tournament_participants"), where("tournament_id", "==", id));
-    const unsubParts = onSnapshot(qParts, (snap) => {
-      setParticipants(snap.docs.map(d => d.data() as TournamentParticipant));
-    });
-
-    const qMembers = query(collection(db, "team_members"), where("tournament_id", "==", id));
-    const unsubMembers = onSnapshot(qMembers, (snap) => {
-      setTeamMembers(snap.docs.map(d => d.data() as TeamMember));
-    });
-
-    return () => { unsubT(); unsubTeams(); unsubMatches(); unsubParts(); unsubMembers(); };
+    return () => { supabase.removeChannel(tSub); };
   }, [id]);
 
   useEffect(() => {
-    // Fix: Using the declared 'google' variable to initialize the map
-    if (activeTab === 'info' && tournament?.latitude && mapRef.current) {
+    if (activeTab === 'info' && tournament?.latitude && mapRef.current && typeof google !== 'undefined') {
         const center = { lat: tournament.latitude, lng: tournament.longitude || 0 };
-        const map = new google.maps.Map(mapRef.current, { center, zoom: 15, styles: [{ featureType: "all", elementType: "all", stylers: [{ saturation: -100 }] }] });
+        const map = new google.maps.Map(mapRef.current, { center, zoom: 15 });
         new google.maps.Marker({ position: center, map, title: tournament.location_name });
     }
   }, [activeTab, tournament]);
@@ -94,19 +82,9 @@ const TournamentDetailPage: React.FC<TournamentDetailPageProps> = ({ profile }) 
     setScheduleData({ team1Id: '', team2Id: '', time: '' });
   };
 
-  const handleAssignToTeam = async (teamId: string) => {
-    if (!isAssigning) return;
-    await dbService.teams.addMember(teamId, id!, {
-        id: isAssigning.user_id,
-        full_name: isAssigning.full_name || 'Anonymous',
-        username: isAssigning.username || 'unknown'
-    });
-    setIsAssigning(null);
-  };
-
   const exportToCSV = () => {
-    const headers = ["Rank", "Squad Name", "Played", "Wins", "Losses", "Points"];
-    const rows = teams.map((t, idx) => [idx + 1, t.name, t.wins + t.losses, t.wins, t.losses, t.points]);
+    const headers = ["Rank", "Squad Name", "Wins", "Losses", "Points"];
+    const rows = teams.map((t, idx) => [idx + 1, t.name, t.wins, t.losses, t.points]);
     let csvContent = "data:text/csv;charset=utf-8," + headers.join(",") + "\n" + rows.map(e => e.join(",")).join("\n");
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
@@ -119,7 +97,7 @@ const TournamentDetailPage: React.FC<TournamentDetailPageProps> = ({ profile }) 
 
   const formatTime = (iso: string) => new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
 
-  if (loading) return <div className="p-20 text-center font-black animate-pulse uppercase">Syncing Cloud Node...</div>;
+  if (loading) return <div className="p-20 text-center font-black animate-pulse uppercase">Syncing Arena...</div>;
   if (!tournament) return <div className="p-20 text-center font-black">Arena not found.</div>;
 
   return (
@@ -127,7 +105,7 @@ const TournamentDetailPage: React.FC<TournamentDetailPageProps> = ({ profile }) 
       <div className="bg-gray-900 rounded-[3rem] p-12 text-white relative overflow-hidden border-b-8 border-green-600 shadow-2xl">
           <div className="flex items-center gap-4 mb-4">
              <span className="bg-green-600 px-4 py-1 rounded-full text-[10px] font-black uppercase tracking-widest">ID: {tournament.share_id}</span>
-             <span className="text-[10px] font-black uppercase tracking-widest text-gray-500">GCP FIRESTORE NODE</span>
+             <span className="text-[10px] font-black uppercase tracking-widest text-gray-500">POSTGRES NODE</span>
           </div>
           <h1 className="text-6xl font-black italic uppercase tracking-tighter leading-none">{tournament.name}</h1>
           <p className="text-gray-400 mt-4 max-w-xl font-medium">{tournament.description}</p>
@@ -145,8 +123,8 @@ const TournamentDetailPage: React.FC<TournamentDetailPageProps> = ({ profile }) 
              </button>
              {isAdmin && (
                <>
-                <button onClick={() => setIsScheduling(true)} className="bg-blue-600 text-white px-8 py-5 rounded-[2.5rem] font-black uppercase italic tracking-tighter shadow-xl flex items-center gap-2 hover:bg-blue-700 transition-all"><Calendar className="w-5 h-5" /> Schedule Match</button>
-                <button onClick={() => setIsCreatingTeam(true)} className="bg-green-600 text-white px-8 py-5 rounded-[2.5rem] font-black uppercase italic tracking-tighter shadow-xl flex items-center gap-2 hover:bg-green-700 transition-all"><PlusCircle className="w-5 h-5" /> Form Squad</button>
+                <button onClick={() => setIsScheduling(true)} className="bg-blue-600 text-white px-8 py-5 rounded-[2.5rem] font-black uppercase italic tracking-tighter shadow-xl flex items-center gap-2 hover:bg-blue-700 transition-all"><Calendar className="w-5 h-5" /> Schedule</button>
+                <button onClick={() => setIsCreatingTeam(true)} className="bg-green-600 text-white px-8 py-5 rounded-[2.5rem] font-black uppercase italic tracking-tighter shadow-xl flex items-center gap-2 hover:bg-green-700 transition-all"><PlusCircle className="w-5 h-5" /> New Squad</button>
                </>
              )}
           </div>
@@ -159,28 +137,19 @@ const TournamentDetailPage: React.FC<TournamentDetailPageProps> = ({ profile }) 
                     <thead>
                       <tr className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-400 border-b border-gray-50">
                         <th className="px-6 py-4">Squad Name</th>
-                        <th className="px-6 py-4 text-center">Played</th>
-                        <th className="px-6 py-4 text-center text-green-600">Wins</th>
+                        <th className="px-6 py-4 text-center">Wins</th>
                         <th className="px-6 py-4 text-center text-red-500">Losses</th>
                         <th className="px-6 py-4 text-right">Points</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-50">
-                      {teams.length === 0 && <tr><td colSpan={5} className="py-20 text-center text-gray-300 font-black italic uppercase">No squads formed yet</td></tr>}
+                      {teams.length === 0 && <tr><td colSpan={4} className="py-20 text-center text-gray-300 font-black italic uppercase">No squads formed yet</td></tr>}
                       {teams.map((team, idx) => (
                         <tr key={team.id} className="group hover:bg-gray-50 transition-colors">
                           <td className="px-6 py-8 flex items-center gap-4">
                             <span className="text-xl font-black text-gray-200">#0{idx+1}</span>
-                            <div>
-                                <span className="text-2xl font-black italic uppercase tracking-tighter group-hover:text-green-600">{team.name}</span>
-                                <div className="flex gap-2 mt-2">
-                                  {teamMembers.filter(m => m.team_id === team.id).map(m => (
-                                    <span key={m.id} className="text-[9px] font-black uppercase bg-gray-100 px-2 py-1 rounded-md text-gray-500">@{m.username}</span>
-                                  ))}
-                                </div>
-                            </div>
+                            <span className="text-2xl font-black italic uppercase tracking-tighter group-hover:text-green-600">{team.name}</span>
                           </td>
-                          <td className="px-6 py-8 text-center font-bold text-gray-600">{team.wins + team.losses}</td>
                           <td className="px-6 py-8 text-center font-black text-green-600">{team.wins}</td>
                           <td className="px-6 py-8 text-center font-black text-red-400">{team.losses}</td>
                           <td className="px-6 py-8 text-right text-4xl font-black italic tracking-tighter text-gray-900">{team.points}</td>
@@ -255,51 +224,27 @@ const TournamentDetailPage: React.FC<TournamentDetailPageProps> = ({ profile }) 
                   <div className="bg-gray-900 p-12 rounded-[3.5rem] text-white flex justify-between items-center">
                       <div>
                         <h3 className="text-3xl font-black italic uppercase tracking-tighter">Commander Operations</h3>
-                        <p className="text-gray-400 font-medium">Manage rosters and participant clearance.</p>
+                        <p className="text-gray-400 font-medium">Roster sync and node management.</p>
                       </div>
-                      <button onClick={() => setIsRecruiting(true)} className="bg-green-600 text-white px-8 py-4 rounded-2xl font-black uppercase italic shadow-lg shadow-green-900/20 active:scale-95 transition-all">Recruit Player</button>
                   </div>
-                  <div className="bg-gray-50 p-8 rounded-[3rem]">
-                      <h4 className="font-black uppercase tracking-widest text-[10px] mb-6 text-gray-400">Recruitment Pool ({participants.length})</h4>
-                      <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                        {participants.map(p => {
-                            const isAssigned = teamMembers.some(m => m.user_id === p.user_id);
-                            return (
-                                <div key={p.id} className="flex justify-between items-center p-5 bg-white rounded-2xl shadow-sm border border-gray-100">
-                                    <div>
-                                      <p className="font-black italic uppercase tracking-tighter">{p.full_name}</p>
-                                      <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">@{p.username}</p>
-                                    </div>
-                                    {isAssigned ? (
-                                        <span className="text-[9px] font-black uppercase px-3 py-1 bg-green-50 text-green-700 rounded-full border border-green-100">Assigned</span>
-                                    ) : (
-                                        <button onClick={() => setIsAssigning(p)} className="p-2 bg-gray-50 hover:bg-green-600 hover:text-white rounded-xl transition-all"><UserPlus className="w-4 h-4" /></button>
-                                    )}
-                                </div>
-                            );
-                        })}
-                      </div>
+                  <div className="bg-gray-50 p-8 rounded-[3rem] text-center italic text-gray-400">
+                    Use global admin panel to manage participants.
                   </div>
               </div>
           )}
       </div>
 
-      {/* Modals remained same as before for Schedule, Recruitment, New Squad */}
-      {isAssigning && (
+      {isCreatingTeam && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-gray-900/60 backdrop-blur-md animate-in fade-in duration-300">
-             <div className="bg-white w-full max-w-lg rounded-[4rem] p-12 shadow-2xl animate-in zoom-in duration-300">
+             <div className="bg-white w-full max-w-lg rounded-[4rem] p-12 shadow-2xl animate-in zoom-in duration-300 border-t-8 border-green-600">
                 <div className="flex justify-between items-center mb-8">
-                    <h2 className="text-4xl font-black italic uppercase tracking-tighter">Assign to Squad</h2>
-                    <button onClick={() => setIsAssigning(null)} className="p-4 hover:bg-gray-100 rounded-full transition-colors"><X /></button>
+                    <h2 className="text-4xl font-black italic uppercase tracking-tighter">New Squad</h2>
+                    <button onClick={() => setIsCreatingTeam(false)} className="p-4 hover:bg-gray-100 rounded-full transition-colors"><X /></button>
                 </div>
-                <div className="space-y-4 max-h-[400px] overflow-y-auto pr-4 custom-scrollbar">
-                    {teams.map(team => (
-                        <button key={team.id} onClick={() => handleAssignToTeam(team.id)} className="w-full text-left p-6 bg-gray-50 rounded-3xl hover:bg-green-600 hover:text-white transition-all group flex items-center justify-between">
-                            <span className="font-black italic uppercase text-xl tracking-tighter">{team.name}</span>
-                            <span className="text-[10px] font-black uppercase">{team.member_count || 0} Members</span>
-                        </button>
-                    ))}
-                </div>
+                <form onSubmit={handleCreateTeam} className="space-y-6">
+                    <input required className="w-full px-8 py-6 bg-gray-50 border rounded-2xl font-black italic text-2xl uppercase" placeholder="Squad Name" value={newTeamName} onChange={e => setNewTeamName(e.target.value)} />
+                    <button type="submit" className="w-full bg-green-600 text-white py-6 rounded-2xl font-black italic uppercase text-xl shadow-xl active:scale-95 transition-all">Form Squad</button>
+                </form>
              </div>
           </div>
       )}

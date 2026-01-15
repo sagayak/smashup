@@ -1,9 +1,8 @@
 
 import React, { useState, useEffect } from 'react';
-import { Trophy, TrendingUp, Users, Calendar, ArrowRight, Play, Star, PlayCircle, Clock, ChevronRight } from 'lucide-react';
+import { Trophy, Users, Calendar, ArrowRight, Play, Star, PlayCircle, Clock, ChevronRight } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { db } from '../services/firebase';
-import { collection, query, where, onSnapshot, getCountFromServer } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js';
+import { supabase } from '../services/supabase';
 import { Tournament, Match, Profile } from '../types';
 
 interface DashboardPageProps {
@@ -11,39 +10,42 @@ interface DashboardPageProps {
 }
 
 const DashboardPage: React.FC<DashboardPageProps> = ({ profile }) => {
-  const [stats, setStats] = useState({ totalTournaments: 0, liveMatches: 0, myMatches: 0 });
+  const [stats, setStats] = useState({ totalTournaments: 0, liveMatches: 0 });
   const [featuredTournaments, setFeaturedTournaments] = useState<Tournament[]>([]);
   const [recentLiveMatches, setRecentLiveMatches] = useState<Match[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // 1. Real-time Live Matches
-    const liveQuery = query(collection(db, "matches"), where("status", "==", "live"));
-    const unsubMatches = onSnapshot(liveQuery, (snap) => {
-      setRecentLiveMatches(snap.docs.map(d => d.data() as Match));
-      setStats(prev => ({ ...prev, liveMatches: snap.size }));
-    });
+    if (!supabase) return;
 
-    // 2. Featured Tournaments
-    const tourQuery = query(collection(db, "tournaments"), where("status", "==", "published"));
-    const unsubTours = onSnapshot(tourQuery, (snap) => {
-      setFeaturedTournaments(snap.docs.map(d => d.data() as Tournament).slice(0, 3));
-      setStats(prev => ({ ...prev, totalTournaments: snap.size }));
-    });
-
-    setLoading(false);
-    return () => {
-      unsubMatches();
-      unsubTours();
+    const fetchData = async () => {
+      const { data: tourneys } = await supabase.from('tournaments').select('*').eq('status', 'published').limit(3);
+      const { data: matches } = await supabase.from('matches').select('*').eq('status', 'live');
+      
+      if (tourneys) setFeaturedTournaments(tourneys as Tournament[]);
+      if (matches) setRecentLiveMatches(matches as Match[]);
+      
+      const { count: tCount } = await supabase.from('tournaments').select('*', { count: 'exact', head: true });
+      const { count: mCount } = await supabase.from('matches').select('*', { count: 'exact', head: true }).eq('status', 'live');
+      
+      setStats({
+        totalTournaments: tCount || 0,
+        liveMatches: mCount || 0
+      });
+      setLoading(false);
     };
+
+    fetchData();
+
+    const matchSub = supabase.channel('live-matches')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'matches' }, fetchData)
+      .subscribe();
+
+    return () => { supabase.removeChannel(matchSub); };
   }, []);
 
   const formatTime = (dateStr: string) => {
-    return new Date(dateStr).toLocaleTimeString('en-US', {
-      hour: 'numeric',
-      minute: '2-digit',
-      hour12: true
-    });
+    return new Date(dateStr).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
   };
 
   return (
@@ -51,14 +53,11 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ profile }) => {
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
         <div>
           <h1 className="text-4xl font-black text-gray-900 italic tracking-tighter uppercase">The Court is Waiting</h1>
-          <p className="text-gray-500 mt-1 font-medium">Firestore cloud sync active.</p>
+          <p className="text-gray-500 mt-1 font-medium">Postgres real-time sync active.</p>
         </div>
-        <div className="flex gap-3">
-          <Link to="/tournaments" className="bg-green-600 hover:bg-green-700 text-white px-8 py-3 rounded-2xl font-black italic uppercase tracking-tighter shadow-xl shadow-green-100 flex items-center gap-2 transition-all active:scale-95">
-            <Trophy className="w-5 h-5" />
-            Find Tournaments
-          </Link>
-        </div>
+        <Link to="/tournaments" className="bg-green-600 hover:bg-green-700 text-white px-8 py-3 rounded-2xl font-black italic uppercase tracking-tighter shadow-xl flex items-center gap-2 transition-all active:scale-95">
+          <Trophy className="w-5 h-5" /> Find Tournaments
+        </Link>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -83,47 +82,29 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ profile }) => {
 
       <div className="grid lg:grid-cols-2 gap-10">
         <div className="space-y-6">
-          <div className="flex items-center justify-between">
-            <h3 className="text-2xl font-black text-gray-800 italic uppercase tracking-tighter flex items-center gap-3">
-              <Play className="w-6 h-6 text-red-500 animate-pulse" />
-              Live Scoring Hub
-            </h3>
-            <span className="text-[10px] text-red-600 font-black uppercase tracking-[0.2em] bg-red-50 px-3 py-1 rounded-full border border-red-100">Live Now</span>
-          </div>
-          
+          <h3 className="text-2xl font-black text-gray-800 italic uppercase tracking-tighter flex items-center gap-3">
+            <Play className="w-6 h-6 text-red-500 animate-pulse" /> Live Scoring Hub
+          </h3>
           <div className="grid gap-6">
             {recentLiveMatches.length === 0 ? (
               <div className="bg-white p-16 rounded-[3rem] border-2 border-dashed border-gray-100 text-center shadow-inner">
                 <PlayCircle className="w-16 h-16 text-gray-100 mx-auto mb-4" />
-                <p className="text-gray-400 font-black uppercase tracking-widest text-sm italic">No active matches found</p>
-                <Link to="/tournaments" className="mt-4 text-green-600 font-bold hover:underline inline-block">Check upcoming schedules</Link>
+                <p className="text-gray-400 font-black uppercase tracking-widest text-sm italic">No active matches</p>
               </div>
             ) : (
               recentLiveMatches.map((match) => (
-                <Link 
-                  key={match.id} 
-                  to={`/scoring/${match.id}`}
-                  className="bg-white p-8 rounded-[2.5rem] border border-gray-100 shadow-sm hover:shadow-2xl hover:border-green-300 transition-all group relative overflow-hidden"
-                >
+                <Link key={match.id} to={`/scoring/${match.id}`} className="bg-white p-8 rounded-[2.5rem] border border-gray-100 shadow-sm hover:shadow-2xl transition-all group relative overflow-hidden">
                   <div className="absolute top-4 right-4 flex items-center gap-1.5 text-gray-400 font-black text-[10px] uppercase">
                      <Clock className="w-3 h-3" /> {formatTime(match.scheduled_at)}
                   </div>
                   <div className="flex items-center justify-between mt-2">
                     <div className="flex flex-col items-center flex-1">
-                      <div className="w-16 h-16 bg-gray-900 text-white rounded-[1.5rem] mb-3 flex items-center justify-center font-black text-2xl italic shadow-lg">
-                        {match.team1_name?.charAt(0).toUpperCase()}
-                      </div>
+                      <div className="w-16 h-16 bg-gray-900 text-white rounded-[1.5rem] mb-3 flex items-center justify-center font-black text-2xl italic shadow-lg">{match.team1_name?.charAt(0)}</div>
                       <span className="text-sm font-black text-gray-900 uppercase tracking-tighter italic">{match.team1_name}</span>
                     </div>
-                    <div className="flex flex-col items-center px-10">
-                      <div className="text-5xl font-black text-green-600 italic tracking-tighter flex items-center gap-4">
-                        {match.score1} <span className="text-gray-200 text-3xl font-normal">-</span> {match.score2}
-                      </div>
-                    </div>
+                    <div className="text-5xl font-black text-green-600 italic tracking-tighter">{match.score1} - {match.score2}</div>
                     <div className="flex flex-col items-center flex-1">
-                      <div className="w-16 h-16 bg-green-600 text-white rounded-[1.5rem] mb-3 flex items-center justify-center font-black text-2xl italic shadow-lg">
-                        {match.team2_name?.charAt(0).toUpperCase()}
-                      </div>
+                      <div className="w-16 h-16 bg-green-600 text-white rounded-[1.5rem] mb-3 flex items-center justify-center font-black text-2xl italic shadow-lg">{match.team2_name?.charAt(0)}</div>
                       <span className="text-sm font-black text-gray-900 uppercase tracking-tighter italic">{match.team2_name}</span>
                     </div>
                   </div>
@@ -134,39 +115,20 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ profile }) => {
         </div>
 
         <div className="space-y-6">
-          <div className="flex items-center justify-between">
-            <h3 className="text-2xl font-black text-gray-800 italic uppercase tracking-tighter">Featured Arenas</h3>
-            <Link to="/tournaments" className="text-green-600 text-xs font-black uppercase tracking-widest flex items-center gap-2 hover:bg-green-50 px-4 py-2 rounded-full transition-all border border-green-100">
-              View All <ArrowRight className="w-4 h-4" />
-            </Link>
-          </div>
-
+          <h3 className="text-2xl font-black text-gray-800 italic uppercase tracking-tighter">Featured Arenas</h3>
           <div className="grid gap-6">
             {featuredTournaments.map((tournament) => (
-              <Link 
-                key={tournament.id}
-                to={`/tournament/${tournament.id}`}
-                className="bg-white p-6 rounded-[2.5rem] border border-gray-100 shadow-sm hover:shadow-xl transition-all flex items-center gap-6 group border-l-8 border-l-green-600"
-              >
+              <Link key={tournament.id} to={`/tournament/${tournament.id}`} className="bg-white p-6 rounded-[2.5rem] border border-gray-100 shadow-sm hover:shadow-xl transition-all flex items-center gap-6 group border-l-8 border-l-green-600">
                 <div className="bg-gray-100 w-24 h-24 rounded-[1.5rem] overflow-hidden flex-shrink-0 group-hover:scale-105 transition-transform">
-                   <img src={`https://picsum.photos/seed/${tournament.id}/200/200`} className="w-full h-full object-cover grayscale group-hover:grayscale-0 transition-all" alt="Venue" />
+                   <img src={`https://picsum.photos/seed/${tournament.id}/200/200`} className="w-full h-full object-cover grayscale group-hover:grayscale-0" alt="Venue" />
                 </div>
                 <div className="flex-1">
-                  <h4 className="font-black text-xl text-gray-900 uppercase tracking-tighter italic group-hover:text-green-600 transition-colors">{tournament.name}</h4>
-                  <div className="flex flex-wrap gap-4 mt-2">
-                    <p className="text-[11px] text-gray-500 font-bold flex items-center gap-1.5 uppercase tracking-widest">
-                      <Calendar className="w-3.5 h-3.5 text-green-600" />
-                      {new Date(tournament.start_date!).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
-                    </p>
-                    <p className="text-[11px] text-gray-500 font-bold flex items-center gap-1.5 uppercase tracking-widest">
-                      <Users className="w-3.5 h-3.5 text-green-600" />
-                      Cloud Sync
-                    </p>
+                  <h4 className="font-black text-xl text-gray-900 uppercase tracking-tighter italic">{tournament.name}</h4>
+                  <div className="flex gap-4 mt-2 text-[11px] text-gray-500 font-bold uppercase">
+                    <Calendar className="w-3.5 h-3.5 text-green-600" /> {new Date(tournament.start_date!).toLocaleDateString()}
                   </div>
                 </div>
-                <div className="text-right">
-                  <ChevronRight className="w-6 h-6 text-gray-300 group-hover:text-green-600 group-hover:translate-x-1 transition-all" />
-                </div>
+                <ChevronRight className="w-6 h-6 text-gray-300" />
               </Link>
             ))}
           </div>
