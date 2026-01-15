@@ -9,6 +9,7 @@ import { Profile, Tournament, Team, Match, CreditLog, UserRole } from '../types'
 // --- COCKROACHDB DATA API CONFIGURATION ---
 export const COCKROACH_CONFIG = {
   ENABLED: true, 
+  USE_PROXY: true, // Set to true to bypass browser CORS restrictions
   BASE_URL: 'https://api.cockroachlabs.cloud/v1/clusters/981e97c4-344d-4f2c-a9e9-d726f27f6b83/sql',
   API_KEY: 'CCDB1_2saEIW8Qkw8WCo09DvbO9c_zhu4T1zHTImuNmpDpsFabVBE6fpGvWH2HCxQb4LW',
   CLUSTER_NAME: 'badminton',
@@ -30,8 +31,13 @@ class CockroachService {
       return { data: null, error: { message: "Cloud connection is disabled in config." } };
     }
 
+    // Wrap URL in proxy if enabled
+    const targetUrl = COCKROACH_CONFIG.USE_PROXY 
+      ? `https://api.allorigins.win/raw?url=${encodeURIComponent(COCKROACH_CONFIG.BASE_URL)}`
+      : COCKROACH_CONFIG.BASE_URL;
+
     try {
-      const response = await fetch(COCKROACH_CONFIG.BASE_URL, {
+      const response = await fetch(targetUrl, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${COCKROACH_CONFIG.API_KEY}`,
@@ -47,22 +53,19 @@ class CockroachService {
       const result = await response.json();
 
       if (!response.ok) {
-        // Handle specific CockroachDB Error responses
         const msg = result.message || result.error || 'Database operation failed.';
         return { data: null, error: { message: msg, status: response.status } };
       }
 
-      // Data API returns rows in result.rows
       return { data: result.rows || [], error: null };
     } catch (err: any) {
       console.error("Fetch Error Detail:", err);
-      // "Failed to fetch" usually means CORS or Network Block
       const isNetworkError = err.message === 'Failed to fetch';
       return { 
         data: null, 
         error: { 
           message: isNetworkError 
-            ? "CONNECTION BLOCKED: The browser blocked the request to CockroachDB (likely CORS). Ensure your Data API is configured for web access or use a proxy." 
+            ? "CORS/NETWORK BLOCK: Browser blocked the connection. Ensure USE_PROXY is enabled in services/supabase.ts." 
             : err.message 
         } 
       };
@@ -74,16 +77,14 @@ class CockroachService {
       const { username, full_name, role } = options.data;
       const usernameLower = username.toLowerCase().trim();
       
-      // 1. Check if user exists
       const checkSql = `SELECT id FROM profiles WHERE username = '${esc(usernameLower)}' LIMIT 1;`;
       const { data: existing, error: checkError } = await this.execute(checkSql);
       
       if (checkError) return { error: checkError };
       if (existing && existing.length > 0) {
-        return { error: { message: "This username is already taken in the cluster." } };
+        return { error: { message: "Username already taken." } };
       }
 
-      // 2. Insert new user
       const id = crypto.randomUUID();
       const createdAt = new Date().toISOString();
       const insertSql = `
@@ -104,7 +105,7 @@ class CockroachService {
       
       const { data, error } = await this.execute(sql);
       if (error) return { error };
-      if (!data || data.length === 0) return { error: { message: "Identity mismatch. Check username and password." } };
+      if (!data || data.length === 0) return { error: { message: "Invalid credentials." } };
 
       const user = data[0];
       localStorage.setItem(this.sessionKey, JSON.stringify(user));
@@ -120,7 +121,6 @@ class CockroachService {
     }
   };
 
-  // Simplified ORM for the rest of the app
   from(table: string) {
     const service = this;
     return {
@@ -164,7 +164,6 @@ class CockroachService {
   rpc = async (name: string, params: any) => {
     if (name === 'get_tournament_details_advanced') {
       const tId = params.tournament_id;
-      
       const [tRes, pRes, teamsRes, matchRes, profRes, tmRes] = await Promise.all([
         this.execute(`SELECT * FROM tournaments WHERE id = '${esc(tId)}' LIMIT 1;`),
         this.execute(`SELECT * FROM tournament_participants WHERE tournament_id = '${esc(tId)}';`),
@@ -210,7 +209,7 @@ class CockroachService {
       return { data: null, error: error || { message: "Credit update failed." } };
     }
 
-    return { data: null, error: { message: "RPC error." } };
+    return { data: null, error: { message: "RPC Error" } };
   };
 
   channel() { return { on: () => ({ subscribe: () => ({}) }), subscribe: () => ({}) }; }

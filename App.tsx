@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { HashRouter, Routes, Route, Navigate, Link, useNavigate } from 'react-router-dom';
-import { Trophy, Users, Shield, LogOut, LayoutDashboard, CreditCard, PlayCircle, Menu, X, PlusCircle, TrendingUp, Settings, AlertTriangle, Database, ExternalLink, Wifi, WifiOff } from 'lucide-react';
+import { Trophy, Users, Shield, LogOut, LayoutDashboard, CreditCard, PlayCircle, Menu, X, PlusCircle, TrendingUp, Settings, AlertTriangle, Database, ExternalLink, Wifi, WifiOff, Globe } from 'lucide-react';
 import { supabase, COCKROACH_CONFIG } from './services/supabase';
 import { Profile } from './types';
 
@@ -161,8 +161,10 @@ const AppContent: React.FC = () => {
           <div className="flex items-center gap-4">
              {COCKROACH_CONFIG.ENABLED ? (
                <div className="flex items-center gap-2 px-3 py-1 bg-green-50 text-green-600 rounded-full border border-green-100">
-                  <Wifi className="w-3 h-3" />
-                  <span className="text-[10px] font-black uppercase tracking-widest">Cloud: {COCKROACH_CONFIG.CLUSTER_NAME || 'Active'}</span>
+                  {COCKROACH_CONFIG.USE_PROXY ? <Globe className="w-3 h-3" /> : <Wifi className="w-3 h-3" />}
+                  <span className="text-[10px] font-black uppercase tracking-widest">
+                    {COCKROACH_CONFIG.USE_PROXY ? 'Cloud Bridge' : `Node: ${COCKROACH_CONFIG.CLUSTER_NAME || 'Active'}`}
+                  </span>
                </div>
              ) : (
                <div className="flex items-center gap-2 px-3 py-1 bg-yellow-50 text-yellow-600 rounded-full border border-yellow-100 animate-pulse">
@@ -170,7 +172,7 @@ const AppContent: React.FC = () => {
                   <span className="text-[10px] font-black uppercase tracking-widest">Demo Mode (Local)</span>
                </div>
              )}
-             <h2 className="hidden sm:block text-sm font-black italic uppercase tracking-tighter text-gray-400">Node: Local-Cluster-01</h2>
+             <h2 className="hidden sm:block text-sm font-black italic uppercase tracking-tighter text-gray-400 tracking-widest">v1.2.0-STABLE</h2>
           </div>
           <div className="flex items-center gap-4">
              <div className="hidden sm:flex flex-col items-end">
