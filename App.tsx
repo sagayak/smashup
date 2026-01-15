@@ -23,22 +23,17 @@ const MissingConfigView: React.FC = () => (
           <AlertTriangle className="w-12 h-12 text-yellow-600" />
         </div>
         <h1 className="text-3xl font-black italic uppercase tracking-tighter text-gray-900 mb-4">Setup Required</h1>
-        <p className="text-gray-500 font-medium mb-8">ShuttleUp needs your Supabase keys to connect to the arena backend.</p>
-        
+        <p className="text-gray-500 font-medium mb-8">ShuttleUp needs Supabase keys to connect to the arena.</p>
         <div className="w-full space-y-4 text-left">
           <div className="p-4 bg-gray-50 rounded-2xl border border-gray-100">
             <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Step 1</p>
-            <p className="text-sm font-bold text-gray-700">Add <code className="text-green-600 bg-green-50 px-1">NEXT_PUBLIC_SUPABASE_URL</code> to environment.</p>
+            <p className="text-sm font-bold text-gray-700">Add <code className="text-green-600 bg-green-50 px-1">NEXT_PUBLIC_SUPABASE_URL</code></p>
           </div>
           <div className="p-4 bg-gray-50 rounded-2xl border border-gray-100">
             <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Step 2</p>
-            <p className="text-sm font-bold text-gray-700">Add <code className="text-green-600 bg-green-50 px-1">NEXT_PUBLIC_SUPABASE_ANON_KEY</code> to environment.</p>
+            <p className="text-sm font-bold text-gray-700">Add <code className="text-green-600 bg-green-50 px-1">NEXT_PUBLIC_SUPABASE_ANON_KEY</code></p>
           </div>
         </div>
-        
-        <p className="mt-8 text-[10px] text-gray-400 font-black uppercase tracking-widest leading-relaxed">
-          Keys can be found in your Supabase Project Settings under <span className="text-gray-900">Project Settings > API</span>.
-        </p>
       </div>
     </div>
   </div>
@@ -80,34 +75,19 @@ const AppContent: React.FC = () => {
 
   const fetchProfile = async (userId: string) => {
     if (!supabase) return;
-    const { data } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', userId)
-      .single();
-
+    const { data } = await supabase.from('profiles').select('*').eq('id', userId).single();
     if (data) {
       setProfile(data as Profile);
       supabase.channel(`profile-${userId}`)
-        .on('postgres_changes', { 
-          event: 'UPDATE', 
-          schema: 'public', 
-          table: 'profiles', 
-          filter: `id=eq.${userId}` 
-        }, payload => setProfile(payload.new as Profile))
+        .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'profiles', filter: `id=eq.${userId}` }, (payload) => {
+          setProfile(payload.new as Profile);
+        })
         .subscribe();
     }
     setLoading(false);
   };
 
-  const handleLogout = async () => {
-    await dbService.auth.signOut();
-    navigate('/login');
-  };
-
-  if (!isSupabaseConfigured) {
-    return <MissingConfigView />;
-  }
+  if (!isSupabaseConfigured) return <MissingConfigView />;
 
   if (loading) {
     return (
@@ -137,29 +117,20 @@ const AppContent: React.FC = () => {
     { to: '/profile', icon: UserIcon, label: 'My Profile' },
   ];
 
-  if (profile.role === 'superadmin') {
-    navLinks.push({ to: '/superadmin', icon: Shield, label: 'SuperAdmin' });
-  }
+  if (profile.role === 'superadmin') navLinks.push({ to: '/superadmin', icon: Shield, label: 'SuperAdmin' });
 
   return (
     <div className="flex min-h-screen bg-gray-50">
-      <button 
-        className="lg:hidden fixed bottom-6 right-6 z-50 bg-green-600 text-white p-4 rounded-full shadow-lg"
-        onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-      >
+      <button className="lg:hidden fixed bottom-6 right-6 z-50 bg-green-600 text-white p-4 rounded-full shadow-lg" onClick={() => setIsSidebarOpen(!isSidebarOpen)}>
         {isSidebarOpen ? <X /> : <Menu />}
       </button>
 
-      <aside className={`
-        fixed inset-y-0 left-0 z-40 w-64 bg-white border-r border-gray-200 transition-transform lg:translate-x-0 lg:static
-        ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}
-      `}>
+      <aside className={`fixed inset-y-0 left-0 z-40 w-64 bg-white border-r border-gray-200 transition-transform lg:translate-x-0 lg:static ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
         <div className="flex flex-col h-full">
           <div className="p-6 border-b border-gray-100 flex items-center gap-3">
             <div className="bg-green-600 p-2 rounded-lg"><Trophy className="w-6 h-6 text-white" /></div>
             <span className="text-xl font-bold text-gray-800 tracking-tight uppercase italic">ShuttleUp</span>
           </div>
-
           <nav className="flex-1 p-4 space-y-2">
             {navLinks.map((link) => (
               <Link key={link.to} to={link.to} onClick={() => setIsSidebarOpen(false)} className="flex items-center gap-3 px-4 py-3 rounded-xl text-gray-600 hover:bg-green-50 hover:text-green-600 transition-colors group">
@@ -168,13 +139,12 @@ const AppContent: React.FC = () => {
               </Link>
             ))}
           </nav>
-
           <div className="p-4 border-t border-gray-100">
             <div className="bg-green-600 rounded-3xl p-5 mb-4 shadow-lg shadow-green-100 relative overflow-hidden group">
               <span className="text-[10px] font-black text-green-100 uppercase tracking-widest">Global Credits</span>
               <div className="text-3xl font-black text-white italic tracking-tighter">{profile.credits}</div>
             </div>
-            <button onClick={handleLogout} className="flex items-center gap-3 w-full px-4 py-3 text-red-600 hover:bg-red-50 rounded-xl transition-colors">
+            <button onClick={() => dbService.auth.signOut()} className="flex items-center gap-3 w-full px-4 py-3 text-red-600 hover:bg-red-50 rounded-xl transition-colors">
               <LogOut className="w-5 h-5" />
               <span className="font-bold text-sm uppercase italic">Exit Arena</span>
             </button>
@@ -184,11 +154,9 @@ const AppContent: React.FC = () => {
 
       <main className="flex-1 flex flex-col min-w-0">
         <header className="sticky top-0 z-30 h-16 bg-white/80 backdrop-blur-md border-b border-gray-200 flex items-center justify-between px-6">
-          <div className="flex items-center gap-4">
-             <div className="flex items-center gap-2 px-3 py-1 bg-green-50 text-green-600 rounded-full border border-green-100 shadow-sm">
-                <Database className="w-3 h-3" />
-                <span className="text-[10px] font-black uppercase tracking-widest">Postgres Live</span>
-             </div>
+          <div className="flex items-center gap-2 px-3 py-1 bg-green-50 text-green-600 rounded-full border border-green-100 shadow-sm">
+            <Database className="w-3 h-3" />
+            <span className="text-[10px] font-black uppercase tracking-widest">Postgres Live</span>
           </div>
           <div className="flex items-center gap-4">
              <div className="hidden sm:flex flex-col items-end">
@@ -200,7 +168,6 @@ const AppContent: React.FC = () => {
              </div>
           </div>
         </header>
-
         <div className="p-6">
           <Routes>
             <Route path="/" element={<DashboardPage profile={profile} />} />
@@ -217,12 +184,10 @@ const AppContent: React.FC = () => {
   );
 };
 
-const App: React.FC = () => {
-  return (
-    <HashRouter>
-      <AppContent />
-    </HashRouter>
-  );
-};
+const App: React.FC = () => (
+  <HashRouter>
+    <AppContent />
+  </HashRouter>
+);
 
 export default App;
