@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { HashRouter, Routes, Route, Navigate, Link, useNavigate } from 'react-router-dom';
-import { Trophy, Shield, LogOut, LayoutDashboard, CreditCard, Menu, X, Cloud, Globe } from 'lucide-react';
+import { Trophy, Shield, LogOut, LayoutDashboard, CreditCard, Menu, X, Globe, Zap, User as UserIcon } from 'lucide-react';
 import { auth, db, dbService } from './services/firebase';
 import { onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js';
 import { doc, onSnapshot } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js';
@@ -24,16 +24,19 @@ const AppContent: React.FC = () => {
   const navigate = useNavigate();
 
   useEffect(() => {
-    const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
+    const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
       if (user) {
-        // Real-time listener for the user's profile doc (credits, role)
-        const unsubscribeProfile = onSnapshot(doc(db, "profiles", user.uid), (snapshot) => {
-          if (snapshot.exists()) {
-            setProfile(snapshot.data() as Profile);
+        // Setup real-time profile listener
+        const unsubProfile = onSnapshot(doc(db, "profiles", user.uid), (snap) => {
+          if (snap.exists()) {
+            setProfile(snap.data() as Profile);
           }
           setLoading(false);
+        }, (error) => {
+          console.error("Profile sync error:", error);
+          setLoading(false);
         });
-        return () => unsubscribeProfile();
+        return () => unsubProfile();
       } else {
         setProfile(null);
         setLoading(false);
@@ -52,9 +55,9 @@ const AppContent: React.FC = () => {
     return (
       <div className="min-h-screen flex items-center justify-center bg-court text-white">
         <div className="text-center">
-          <Cloud className="w-16 h-16 mx-auto mb-4 animate-pulse text-green-300" />
+          <Zap className="w-16 h-16 mx-auto mb-4 animate-bounce text-yellow-300" />
           <h1 className="text-3xl font-black italic uppercase tracking-tighter">ShuttleUp</h1>
-          <p className="mt-2 text-green-200 font-black italic uppercase tracking-widest text-xs">Synchronizing with Firestore Cloud...</p>
+          <p className="mt-2 text-green-200 font-black italic uppercase tracking-widest text-xs">Syncing with Firebase Cloud...</p>
         </div>
       </div>
     );
@@ -73,8 +76,7 @@ const AppContent: React.FC = () => {
   const navLinks = [
     { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
     { to: '/tournaments', icon: Trophy, label: 'Tournaments' },
-    { to: '/credits', icon: CreditCard, label: 'Credits' },
-    { to: '/profile', icon: Trophy, label: 'Profile' },
+    { to: '/profile', icon: UserIcon, label: 'My Profile' },
   ];
 
   if (profile.role === 'superadmin') {
@@ -96,20 +98,13 @@ const AppContent: React.FC = () => {
       `}>
         <div className="flex flex-col h-full">
           <div className="p-6 border-b border-gray-100 flex items-center gap-3">
-            <div className="bg-green-600 p-2 rounded-lg">
-              <Trophy className="w-6 h-6 text-white" />
-            </div>
+            <div className="bg-green-600 p-2 rounded-lg"><Trophy className="w-6 h-6 text-white" /></div>
             <span className="text-xl font-bold text-gray-800 tracking-tight uppercase italic">ShuttleUp</span>
           </div>
 
           <nav className="flex-1 p-4 space-y-2">
             {navLinks.map((link) => (
-              <Link
-                key={link.to}
-                to={link.to}
-                className="flex items-center gap-3 px-4 py-3 rounded-xl text-gray-600 hover:bg-green-50 hover:text-green-600 transition-colors group"
-                onClick={() => setIsSidebarOpen(false)}
-              >
+              <Link key={link.to} to={link.to} onClick={() => setIsSidebarOpen(false)} className="flex items-center gap-3 px-4 py-3 rounded-xl text-gray-600 hover:bg-green-50 hover:text-green-600 transition-colors group">
                 <link.icon className="w-5 h-5 group-hover:scale-110 transition-transform" />
                 <span className="font-bold text-sm tracking-tight uppercase italic">{link.label}</span>
               </Link>
@@ -118,17 +113,10 @@ const AppContent: React.FC = () => {
 
           <div className="p-4 border-t border-gray-100">
             <div className="bg-green-600 rounded-3xl p-5 mb-4 shadow-lg shadow-green-100 relative overflow-hidden group">
-              <div className="absolute top-0 right-0 p-2 opacity-10 group-hover:scale-125 transition-transform">
-                <CreditCard className="w-12 h-12 text-white" />
-              </div>
               <span className="text-[10px] font-black text-green-100 uppercase tracking-widest">Global Credits</span>
               <div className="text-3xl font-black text-white italic tracking-tighter">{profile.credits}</div>
             </div>
-
-            <button 
-              onClick={handleLogout}
-              className="flex items-center gap-3 w-full px-4 py-3 text-red-600 hover:bg-red-50 rounded-xl transition-colors"
-            >
+            <button onClick={handleLogout} className="flex items-center gap-3 w-full px-4 py-3 text-red-600 hover:bg-red-50 rounded-xl transition-colors">
               <LogOut className="w-5 h-5" />
               <span className="font-bold text-sm uppercase italic">Exit Arena</span>
             </button>
@@ -141,9 +129,8 @@ const AppContent: React.FC = () => {
           <div className="flex items-center gap-4">
              <div className="flex items-center gap-2 px-3 py-1 bg-green-50 text-green-600 rounded-full border border-green-100 shadow-sm">
                 <Globe className="w-3 h-3" />
-                <span className="text-[10px] font-black uppercase tracking-widest">Firestore Live</span>
+                <span className="text-[10px] font-black uppercase tracking-widest">Firebase Live</span>
              </div>
-             <h2 className="hidden sm:block text-sm font-black italic uppercase tracking-tighter text-gray-300 tracking-widest">v2.0.0-FIRESTORE</h2>
           </div>
           <div className="flex items-center gap-4">
              <div className="hidden sm:flex flex-col items-end">
@@ -162,11 +149,8 @@ const AppContent: React.FC = () => {
             <Route path="/tournaments" element={<TournamentsPage profile={profile} />} />
             <Route path="/tournament/:id" element={<TournamentDetailPage profile={profile} />} />
             <Route path="/scoring/:matchId" element={<LiveScoringPage profile={profile} />} />
-            <Route path="/credits" element={<ProfilePage profile={profile} />} />
             <Route path="/profile" element={<ProfilePage profile={profile} />} />
-            {profile.role === 'superadmin' && (
-              <Route path="/superadmin" element={<SuperAdminPage profile={profile} />} />
-            )}
+            {profile.role === 'superadmin' && <Route path="/superadmin" element={<SuperAdminPage profile={profile} />} />}
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </div>
