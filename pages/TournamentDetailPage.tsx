@@ -1,9 +1,13 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { Trophy, Users, Calendar, List, LayoutGrid, PlusCircle, UserPlus, X, Check, UserCheck, ShieldAlert, Search, AlertCircle, RefreshCw, User, Shield, Info, ArrowRight, Settings, MapPin, Hash } from 'lucide-react';
-import { supabase } from '../services/supabase';
+import { Trophy, Users, LayoutGrid, PlusCircle, UserPlus, X, Check, UserCheck, Shield, Info, RefreshCw, MapPin, Hash, Play, Calendar, Download, UserCircle, Map as MapIcon } from 'lucide-react';
+import { db, dbService } from '../services/firebase';
+import { doc, onSnapshot, collection, query, where, getDocs, addDoc, orderBy } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js';
 import { Tournament, Team, Match, Profile, TournamentParticipant, TeamMember } from '../types';
+
+// Fix: Declare google global variable for Google Maps API to satisfy TypeScript
+declare const google: any;
 
 interface TournamentDetailPageProps {
   profile: Profile;
@@ -12,465 +16,324 @@ interface TournamentDetailPageProps {
 const TournamentDetailPage: React.FC<TournamentDetailPageProps> = ({ profile }) => {
   const { id } = useParams<{ id: string }>();
   const [tournament, setTournament] = useState<Tournament | null>(null);
-  const [teams, setTeams] = useState<(Team & { members: TeamMember[] })[]>([]);
+  const [teams, setTeams] = useState<Team[]>([]);
   const [participants, setParticipants] = useState<TournamentParticipant[]>([]);
   const [matches, setMatches] = useState<Match[]>([]);
+  const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'standings' | 'matches' | 'requests' | 'info' | 'admin'>('standings');
+  const [activeTab, setActiveTab] = useState<'standings' | 'matches' | 'info' | 'admin'>('standings');
+  const mapRef = useRef<HTMLDivElement>(null);
   
-  // Recruitment State
   const [isRecruiting, setIsRecruiting] = useState(false);
   const [recruitInput, setRecruitInput] = useState('');
-  const [recruitTeamId, setRecruitTeamId] = useState<'pool' | string>('pool');
-  const [isSubmitting, setIsSubmitting] = useState(false);
-
-  // Team Creation State
   const [isCreatingTeam, setIsCreatingTeam] = useState(false);
   const [newTeamName, setNewTeamName] = useState('');
+  
+  const [isScheduling, setIsScheduling] = useState(false);
+  const [scheduleData, setScheduleData] = useState({ team1Id: '', team2Id: '', time: '' });
+  const [isAssigning, setIsAssigning] = useState<TournamentParticipant | null>(null);
+
+  const navigate = useNavigate();
 
   useEffect(() => {
-    fetchData();
-    const timer = setTimeout(() => {
-      if (loading) {
-        setLoading(false);
-        setError("Sync timeout. The arena node might be offline or empty.");
-      }
-    }, 5000);
-    return () => clearTimeout(timer);
+    if (!id) return;
+
+    const unsubT = onSnapshot(doc(db, "tournaments", id), (snap) => {
+      if (snap.exists()) setTournament(snap.data() as Tournament);
+      setLoading(false);
+    });
+
+    const qTeams = query(collection(db, "teams"), where("tournament_id", "==", id), orderBy("points", "desc"));
+    const unsubTeams = onSnapshot(qTeams, (snap) => {
+      setTeams(snap.docs.map(d => d.data() as Team));
+    });
+
+    const qMatches = query(collection(db, "matches"), where("tournament_id", "==", id), orderBy("scheduled_at", "desc"));
+    const unsubMatches = onSnapshot(qMatches, (snap) => {
+      setMatches(snap.docs.map(d => d.data() as Match));
+    });
+
+    const qParts = query(collection(db, "tournament_participants"), where("tournament_id", "==", id));
+    const unsubParts = onSnapshot(qParts, (snap) => {
+      setParticipants(snap.docs.map(d => d.data() as TournamentParticipant));
+    });
+
+    const qMembers = query(collection(db, "team_members"), where("tournament_id", "==", id));
+    const unsubMembers = onSnapshot(qMembers, (snap) => {
+      setTeamMembers(snap.docs.map(d => d.data() as TeamMember));
+    });
+
+    return () => { unsubT(); unsubTeams(); unsubMatches(); unsubParts(); unsubMembers(); };
   }, [id]);
 
-  const fetchData = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const { data, error: rpcError } = await supabase.rpc('get_tournament_details_advanced', { tournament_id: id });
-      if (rpcError) throw rpcError;
-      if (data) {
-        setTournament(data.tournament);
-        setParticipants(data.participants || []);
-        setTeams(data.teams || []);
-        setMatches(data.matches || []);
-      }
-    } catch (err: any) {
-      console.error("Critical Sync Failure:", err);
-      setError(err.message || "Failed to retrieve arena data.");
-    } finally {
-      setLoading(false);
+  useEffect(() => {
+    // Fix: Using the declared 'google' variable to initialize the map
+    if (activeTab === 'info' && tournament?.latitude && mapRef.current) {
+        const center = { lat: tournament.latitude, lng: tournament.longitude || 0 };
+        const map = new google.maps.Map(mapRef.current, { center, zoom: 15, styles: [{ featureType: "all", elementType: "all", stylers: [{ saturation: -100 }] }] });
+        new google.maps.Marker({ position: center, map, title: tournament.location_name });
     }
-  };
+  }, [activeTab, tournament]);
 
   const isAdmin = tournament && (profile.id === tournament.organizer_id || profile.role === 'superadmin');
 
   const handleCreateTeam = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newTeamName) return;
-    setIsSubmitting(true);
-    try {
-        const { error } = await supabase.from('teams').insert({
-            tournament_id: id,
-            name: newTeamName
-        });
-        if (error) throw error;
-        setNewTeamName('');
-        setIsCreatingTeam(false);
-        fetchData();
-    } catch (err: any) {
-        alert(err.message);
-    } finally {
-        setIsSubmitting(false);
-    }
+    await dbService.teams.create(id!, newTeamName);
+    setNewTeamName('');
+    setIsCreatingTeam(false);
   };
 
-  const handleRecruitPlayer = async (e: React.FormEvent) => {
+  const handleScheduleMatch = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!recruitInput) return;
-    setIsSubmitting(true);
-
-    try {
-      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(recruitInput);
-      
-      // 1. Find the player profile by ID or Username
-      let query = supabase.from('profiles').select('*');
-      if (isUuid) {
-          query = query.eq('id', recruitInput);
-      } else {
-          query = query.eq('username', recruitInput.toLowerCase().replace('@', ''));
-      }
-      
-      const { data: userData, error: userError } = await query.single();
-
-      if (userError || !userData) {
-        throw new Error("Target player not found in CockroachDB cluster.");
-      }
-
-      // 2. Add to participants if not already there
-      const isAlreadyParticipant = participants.some(p => p.user_id === userData.id);
-      if (!isAlreadyParticipant) {
-        await supabase.from('tournament_participants').insert({
-          tournament_id: id,
-          user_id: userData.id,
-          status: 'approved'
-        });
-      }
-
-      // 3. Add to team if specified
-      if (recruitTeamId !== 'pool') {
-        const isAlreadyOnTeam = teams.some(t => t.id === recruitTeamId && t.members.some(m => m.user_id === userData.id));
-        if (!isAlreadyOnTeam) {
-            await supabase.from('team_members').insert({
-                team_id: recruitTeamId,
-                user_id: userData.id
-            });
-        }
-      }
-
-      alert(`Successfully recruited ${userData.full_name} to the arena!`);
-      setIsRecruiting(false);
-      setRecruitInput('');
-      fetchData();
-    } catch (err: any) {
-      alert(err.message);
-    } finally {
-      setIsSubmitting(false);
-    }
+    const t1 = teams.find(t => t.id === scheduleData.team1Id);
+    const t2 = teams.find(t => t.id === scheduleData.team2Id);
+    if (!t1 || !t2 || t1.id === t2.id) return alert("Select two different squads.");
+    await dbService.matches.create(id!, t1, t2, new Date(scheduleData.time).toISOString());
+    setIsScheduling(false);
+    setScheduleData({ team1Id: '', team2Id: '', time: '' });
   };
 
-  if (loading) return (
-    <div className="min-h-screen flex flex-col items-center justify-center gap-6 bg-gray-50">
-      <div className="relative">
-        <div className="w-24 h-24 border-4 border-green-100 border-t-green-600 rounded-full animate-spin"></div>
-        <Trophy className="w-10 h-10 text-green-600 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" />
-      </div>
-      <div className="text-center">
-        <p className="text-gray-900 font-black uppercase italic tracking-tighter text-2xl">Syncing Arena Data</p>
-        <p className="text-gray-400 font-bold uppercase tracking-widest text-[10px] mt-1">Connecting to Cluster Node...</p>
-      </div>
-    </div>
-  );
+  const handleAssignToTeam = async (teamId: string) => {
+    if (!isAssigning) return;
+    await dbService.teams.addMember(teamId, id!, {
+        id: isAssigning.user_id,
+        full_name: isAssigning.full_name || 'Anonymous',
+        username: isAssigning.username || 'unknown'
+    });
+    setIsAssigning(null);
+  };
 
-  if (error || !tournament) return (
-    <div className="min-h-screen flex flex-col items-center justify-center p-12 text-center bg-gray-50">
-       <div className="bg-red-50 p-8 rounded-[3rem] border border-red-100 mb-8 max-w-md">
-          <AlertCircle className="w-16 h-16 text-red-500 mb-6 mx-auto" />
-          <h2 className="text-3xl font-black italic uppercase tracking-tighter mb-4 text-gray-900">Arena Offline</h2>
-          <p className="text-gray-500 font-medium leading-relaxed">{error || "The tournament node you requested does not exist in this database cluster."}</p>
-       </div>
-       <div className="flex gap-4">
-          <button onClick={() => window.location.reload()} className="flex items-center gap-2 bg-white border border-gray-200 text-gray-900 px-8 py-4 rounded-2xl font-black italic uppercase tracking-tighter hover:bg-gray-50 transition-all shadow-sm">
-             <RefreshCw className="w-5 h-5" /> Retry Sync
-          </button>
-          <Link to="/tournaments" className="bg-gray-900 text-white px-10 py-4 rounded-2xl font-black italic uppercase tracking-tighter transition-all active:scale-95 shadow-2xl">Return to Lobby</Link>
-       </div>
-    </div>
-  );
+  const exportToCSV = () => {
+    const headers = ["Rank", "Squad Name", "Played", "Wins", "Losses", "Points"];
+    const rows = teams.map((t, idx) => [idx + 1, t.name, t.wins + t.losses, t.wins, t.losses, t.points]);
+    let csvContent = "data:text/csv;charset=utf-8," + headers.join(",") + "\n" + rows.map(e => e.join(",")).join("\n");
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", `${tournament?.name}_standings.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const formatTime = (iso: string) => new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+
+  if (loading) return <div className="p-20 text-center font-black animate-pulse uppercase">Syncing Cloud Node...</div>;
+  if (!tournament) return <div className="p-20 text-center font-black">Arena not found.</div>;
 
   return (
     <div className="space-y-10 animate-in fade-in duration-700 pb-20">
-      {/* Hero Header */}
-      <div className="relative h-80 md:h-[450px] rounded-[3.5rem] overflow-hidden shadow-2xl border-b-8 border-green-600">
-        <img src={`https://picsum.photos/seed/${id}/1200/600`} className="w-full h-full object-cover grayscale opacity-60" alt="Hero" />
-        <div className="absolute inset-0 bg-gradient-to-t from-gray-900 via-gray-900/40 to-transparent" />
-        <div className="absolute bottom-12 left-12 right-12 text-white">
-          <div className="flex flex-wrap items-center gap-4 mb-6">
-             <span className="bg-green-600 px-6 py-2 rounded-full text-[10px] font-black uppercase tracking-[0.2em] shadow-2xl shadow-green-900/40">Official Arena</span>
-             <span className="bg-white/10 backdrop-blur-md px-6 py-2 rounded-full text-[10px] font-black uppercase tracking-[0.2em] flex items-center gap-2 border border-white/20">ID: {tournament.share_id}</span>
-             <span className="bg-white/10 backdrop-blur-md px-6 py-2 rounded-full text-[10px] font-black uppercase tracking-[0.2em] flex items-center gap-2 border border-white/20"><Calendar className="w-4 h-4 text-green-400" /> {new Date(tournament.start_date!).toLocaleDateString()}</span>
-             {isAdmin && <span className="bg-purple-600/50 backdrop-blur-md px-6 py-2 rounded-full text-[10px] font-black uppercase tracking-[0.2em] flex items-center gap-2 border border-purple-400/30 shadow-xl"><Shield className="w-4 h-4" /> Commander Access</span>}
+      <div className="bg-gray-900 rounded-[3rem] p-12 text-white relative overflow-hidden border-b-8 border-green-600 shadow-2xl">
+          <div className="flex items-center gap-4 mb-4">
+             <span className="bg-green-600 px-4 py-1 rounded-full text-[10px] font-black uppercase tracking-widest">ID: {tournament.share_id}</span>
+             <span className="text-[10px] font-black uppercase tracking-widest text-gray-500">GCP FIRESTORE NODE</span>
           </div>
-          <h1 className="text-5xl md:text-8xl font-black italic uppercase tracking-tighter mb-4 leading-none">{tournament.name}</h1>
-          <div className="flex items-center gap-4">
-            <p className="text-gray-300 font-medium text-lg max-w-2xl line-clamp-2">{tournament.description || 'Welcome to the official ShuttleUp circuit.'}</p>
-          </div>
-        </div>
+          <h1 className="text-6xl font-black italic uppercase tracking-tighter leading-none">{tournament.name}</h1>
+          <p className="text-gray-400 mt-4 max-w-xl font-medium">{tournament.description}</p>
       </div>
 
-      {/* Tabs */}
-      <div className="flex flex-col lg:flex-row gap-8 items-start">
-        <div className="bg-white p-3 rounded-[3rem] shadow-xl border border-gray-100 flex-1 w-full lg:max-w-4xl flex overflow-x-auto">
-          {[
-            { id: 'standings', label: 'Teams', icon: List },
-            { id: 'matches', label: 'Battles', icon: LayoutGrid },
-            { id: 'requests', label: 'Requests', icon: UserCheck, count: participants.filter(p => p.status === 'pending').length },
-            { id: 'info', label: 'Rules', icon: Info },
-            ...(isAdmin ? [{ id: 'admin', label: 'Command Center', icon: Settings }] : [])
-          ].map(tab => (
-            <button 
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id as any)}
-              className={`flex-1 flex items-center justify-center gap-3 py-6 px-4 rounded-[2.5rem] text-xs font-black italic uppercase tracking-tighter transition-all min-w-[120px] relative ${
-                activeTab === tab.id ? 'bg-gray-900 text-white shadow-2xl scale-105 z-10' : 'text-gray-400 hover:bg-gray-50'
-              }`}
-            >
-              <tab.icon className="w-4 h-4" /> 
-              {tab.label}
-              {(tab as any).count ? (
-                <span className="absolute -top-1 -right-1 w-6 h-6 bg-red-500 text-white text-[10px] flex items-center justify-center rounded-full animate-bounce shadow-lg">{ (tab as any).count }</span>
-              ) : null}
-            </button>
+      <div className="flex gap-4 overflow-x-auto pb-2 scrollbar-hide">
+          {['standings', 'matches', 'info', 'admin'].map(t => (
+              (t !== 'admin' || isAdmin) && (
+                <button key={t} onClick={() => setActiveTab(t as any)} className={`px-10 py-5 rounded-[2.5rem] font-black italic uppercase tracking-tighter text-sm transition-all shadow-xl ${activeTab === t ? 'bg-gray-900 text-white scale-105' : 'bg-white text-gray-400 hover:text-gray-600'}`}>{t}</button>
+              )
           ))}
-        </div>
-
-        {isAdmin && (
-           <div className="flex gap-4">
-               <button 
-                 onClick={() => setIsCreatingTeam(true)}
-                 className="bg-white border-2 border-gray-900 text-gray-900 px-10 py-6 rounded-[3rem] font-black italic uppercase tracking-tighter flex items-center gap-3 shadow-xl hover:bg-gray-50 transition-all active:scale-95 whitespace-nowrap"
-               >
-                  <PlusCircle className="w-5 h-5" /> Form Squad
-               </button>
-               <button 
-                 onClick={() => { setIsRecruiting(true); setActiveTab('admin'); }}
-                 className="bg-green-600 text-white px-10 py-6 rounded-[3rem] font-black italic uppercase tracking-tighter flex items-center gap-3 shadow-2xl shadow-green-100 hover:bg-green-700 transition-all active:scale-95 whitespace-nowrap"
-               >
-                  <UserPlus className="w-5 h-5" /> Recruit
-               </button>
-           </div>
-        )}
+          <div className="ml-auto flex gap-4">
+             <button onClick={exportToCSV} className="bg-white border border-gray-100 text-gray-400 px-6 py-5 rounded-[2.5rem] font-black uppercase italic tracking-tighter text-sm flex items-center gap-2 hover:bg-gray-50 transition-all">
+                <Download className="w-4 h-4" /> Export CSV
+             </button>
+             {isAdmin && (
+               <>
+                <button onClick={() => setIsScheduling(true)} className="bg-blue-600 text-white px-8 py-5 rounded-[2.5rem] font-black uppercase italic tracking-tighter shadow-xl flex items-center gap-2 hover:bg-blue-700 transition-all"><Calendar className="w-5 h-5" /> Schedule Match</button>
+                <button onClick={() => setIsCreatingTeam(true)} className="bg-green-600 text-white px-8 py-5 rounded-[2.5rem] font-black uppercase italic tracking-tighter shadow-xl flex items-center gap-2 hover:bg-green-700 transition-all"><PlusCircle className="w-5 h-5" /> Form Squad</button>
+               </>
+             )}
+          </div>
       </div>
-      
-      {/* Tab Content */}
-      <div className="bg-white rounded-[4rem] border border-gray-100 shadow-2xl overflow-hidden min-h-[500px] p-12">
-        {activeTab === 'standings' && (
-           <div className="space-y-12">
-              <div className="flex items-center justify-between px-4">
-                 <h3 className="text-3xl font-black italic uppercase tracking-tighter text-gray-900">Arena Standings</h3>
-                 <div className="text-[10px] font-black uppercase tracking-widest text-gray-400">Synced to Node: {tournament.id.split('-')[0]}</div>
-              </div>
-              
-              {teams.length === 0 ? (
-                <div className="text-center py-24 bg-gray-50 rounded-[3rem] border-2 border-dashed border-gray-100">
-                    <Users className="w-20 h-20 text-gray-200 mx-auto mb-6" />
-                    <p className="text-gray-400 font-black uppercase tracking-widest text-sm italic">No teams registered in cluster</p>
-                    {isAdmin && (
-                        <button 
-                            onClick={() => setIsCreatingTeam(true)}
-                            className="mt-6 text-green-600 font-black uppercase tracking-tighter italic flex items-center gap-2 mx-auto hover:underline"
-                        >
-                            <PlusCircle className="w-5 h-5" /> Create First Squad
-                        </button>
-                    )}
-                </div>
-              ) : (
-                <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
-                    {teams.map(team => (
-                        <div key={team.id} className="bg-white p-8 rounded-[3rem] border border-gray-100 shadow-xl hover:shadow-2xl transition-all group">
-                            <div className="flex justify-between items-start mb-6">
-                                <div className="w-16 h-16 bg-gray-900 text-white rounded-[1.5rem] flex items-center justify-center text-2xl font-black italic border-2 border-green-500 shadow-lg">
-                                    {team.name.charAt(0).toUpperCase()}
-                                </div>
-                                <div className="text-right">
-                                    <span className="text-4xl font-black italic tracking-tighter text-green-600">{team.points}</span>
-                                    <p className="text-[9px] font-black uppercase tracking-widest text-gray-400">PTS</p>
+
+      <div className="bg-white rounded-[4rem] p-12 shadow-2xl border border-gray-100 min-h-[400px]">
+          {activeTab === 'standings' && (
+              <div className="overflow-x-auto">
+                  <table className="w-full text-left">
+                    <thead>
+                      <tr className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-400 border-b border-gray-50">
+                        <th className="px-6 py-4">Squad Name</th>
+                        <th className="px-6 py-4 text-center">Played</th>
+                        <th className="px-6 py-4 text-center text-green-600">Wins</th>
+                        <th className="px-6 py-4 text-center text-red-500">Losses</th>
+                        <th className="px-6 py-4 text-right">Points</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-50">
+                      {teams.length === 0 && <tr><td colSpan={5} className="py-20 text-center text-gray-300 font-black italic uppercase">No squads formed yet</td></tr>}
+                      {teams.map((team, idx) => (
+                        <tr key={team.id} className="group hover:bg-gray-50 transition-colors">
+                          <td className="px-6 py-8 flex items-center gap-4">
+                            <span className="text-xl font-black text-gray-200">#0{idx+1}</span>
+                            <div>
+                                <span className="text-2xl font-black italic uppercase tracking-tighter group-hover:text-green-600">{team.name}</span>
+                                <div className="flex gap-2 mt-2">
+                                  {teamMembers.filter(m => m.team_id === team.id).map(m => (
+                                    <span key={m.id} className="text-[9px] font-black uppercase bg-gray-100 px-2 py-1 rounded-md text-gray-500">@{m.username}</span>
+                                  ))}
                                 </div>
                             </div>
-                            <h4 className="text-2xl font-black italic uppercase tracking-tighter text-gray-900 mb-6">{team.name}</h4>
-                            <div className="space-y-3">
-                                <p className="text-[10px] font-black uppercase tracking-widest text-gray-400 mb-2">Squad Members ({team.members?.length || 0})</p>
-                                {team.members?.map(member => (
-                                    <div key={member.id} className="flex items-center gap-3 p-3 bg-gray-50 rounded-2xl">
-                                        <div className="w-6 h-6 bg-white rounded-lg flex items-center justify-center text-[8px] font-black text-gray-400">@{member.username?.charAt(0)}</div>
-                                        <span className="text-sm font-bold text-gray-700">@{member.username}</span>
-                                    </div>
-                                ))}
-                                {(!team.members || team.members.length === 0) && (
-                                    <p className="text-xs text-gray-300 italic font-medium">No members assigned yet.</p>
-                                )}
+                          </td>
+                          <td className="px-6 py-8 text-center font-bold text-gray-600">{team.wins + team.losses}</td>
+                          <td className="px-6 py-8 text-center font-black text-green-600">{team.wins}</td>
+                          <td className="px-6 py-8 text-center font-black text-red-400">{team.losses}</td>
+                          <td className="px-6 py-8 text-right text-4xl font-black italic tracking-tighter text-gray-900">{team.points}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+              </div>
+          )}
+
+          {activeTab === 'matches' && (
+              <div className="space-y-6">
+                  {matches.length === 0 && <div className="py-20 text-center text-gray-300 font-black italic uppercase">No battles scheduled</div>}
+                  {matches.map(match => (
+                      <Link to={`/scoring/${match.id}`} key={match.id} className="block bg-gray-50 p-10 rounded-[3rem] hover:bg-white border-2 border-transparent hover:border-green-100 transition-all shadow-sm group">
+                          <div className="flex items-center justify-between">
+                              <div className="flex-1 text-right pr-8">
+                                <span className="font-black italic uppercase text-2xl tracking-tighter group-hover:text-green-600 transition-colors">{match.team1_name}</span>
+                              </div>
+                              <div className="flex flex-col items-center gap-2 px-10 border-x border-gray-200">
+                                  <span className="text-5xl font-black italic text-gray-900 tracking-tighter">{match.score1} : {match.score2}</span>
+                                  <div className="flex items-center gap-2">
+                                    <span className={`text-[10px] font-black uppercase tracking-widest ${match.status === 'live' ? 'text-red-500' : 'text-gray-400'}`}>{match.status === 'live' ? 'LIVE NOW' : 'FINISHED'}</span>
+                                    {match.status === 'live' && <span className="w-2 h-2 bg-red-500 rounded-full animate-ping" />}
+                                  </div>
+                                  <span className="text-[9px] font-bold text-gray-300 uppercase">{formatTime(match.scheduled_at)}</span>
+                              </div>
+                              <div className="flex-1 text-left pl-8">
+                                <span className="font-black italic uppercase text-2xl tracking-tighter group-hover:text-green-600 transition-colors">{match.team2_name}</span>
+                              </div>
+                          </div>
+                      </Link>
+                  ))}
+              </div>
+          )}
+
+          {activeTab === 'info' && (
+              <div className="grid md:grid-cols-2 gap-12">
+                  <div className="space-y-8">
+                      <div>
+                        <h4 className="text-[10px] font-black uppercase tracking-widest text-green-600 mb-2">Arena Logistics</h4>
+                        <div className="flex items-center gap-4 bg-gray-50 p-6 rounded-3xl">
+                            <MapPin className="w-8 h-8 text-gray-400" />
+                            <div>
+                                <p className="font-black italic uppercase tracking-tighter text-xl">{tournament.location_name}</p>
+                                <p className="text-xs text-gray-500 font-medium">Verified Facility Node</p>
                             </div>
                         </div>
-                    ))}
-                </div>
-              )}
-           </div>
-        )}
-
-        {activeTab === 'admin' && (
-            <div className="space-y-12">
-                <div className="grid md:grid-cols-2 gap-8">
-                    <div className="bg-gray-900 p-12 rounded-[3.5rem] text-white shadow-2xl relative overflow-hidden flex flex-col justify-between">
-                        <div className="absolute top-0 right-0 p-4 opacity-10"><Shield className="w-48 h-48" /></div>
-                        <div>
-                            <h3 className="text-4xl font-black italic uppercase tracking-tighter mb-4 text-green-500">Command Hub</h3>
-                            <p className="text-gray-400 font-medium mb-12 leading-relaxed text-lg">Control team structures, manage the recruitment pool, and oversee the global arena status.</p>
+                      </div>
+                      <div>
+                        <h4 className="text-[10px] font-black uppercase tracking-widest text-green-600 mb-2">Deployment Schedule</h4>
+                        <div className="flex items-center gap-4 bg-gray-50 p-6 rounded-3xl">
+                            <Calendar className="w-8 h-8 text-gray-400" />
+                            <div>
+                                <p className="font-black italic uppercase tracking-tighter text-xl">{new Date(tournament.start_date!).toLocaleDateString()}</p>
+                                <p className="text-xs text-gray-500 font-medium">Standard Launch Window</p>
+                            </div>
                         </div>
-                        <div className="flex flex-wrap gap-4">
-                            <button 
-                                onClick={() => setIsRecruiting(true)}
-                                className="bg-green-600 text-white px-8 py-4 rounded-2xl font-black italic uppercase tracking-tighter shadow-xl shadow-green-900/40 hover:bg-green-700 transition-all active:scale-95"
-                            >
-                                Start Recruitment
-                            </button>
-                            <button 
-                                onClick={() => setIsCreatingTeam(true)}
-                                className="bg-white text-gray-900 px-8 py-4 rounded-2xl font-black italic uppercase tracking-tighter shadow-xl hover:bg-gray-100 transition-all active:scale-95"
-                            >
-                                New Squad
-                            </button>
-                        </div>
-                    </div>
-
-                    <div className="bg-white p-10 rounded-[3.5rem] border border-gray-100 shadow-xl flex flex-col">
-                        <h3 className="text-2xl font-black italic uppercase tracking-tighter text-gray-900 mb-6 flex items-center gap-2">
-                            <UserCheck className="w-6 h-6 text-green-600" />
-                            General Pool ({participants.length})
-                        </h3>
-                        <div className="space-y-4 flex-1 overflow-y-auto pr-4 max-h-[400px]">
-                            {participants.length === 0 ? (
-                                <div className="text-center py-20 bg-gray-50 rounded-3xl border-2 border-dashed border-gray-200">
-                                    <p className="text-gray-300 font-black uppercase tracking-widest text-xs italic">Pool is currently empty</p>
-                                </div>
-                            ) : (
-                                participants.map(p => (
-                                    <div key={p.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-3xl group border border-transparent hover:border-green-100 transition-all">
-                                        <div className="flex items-center gap-4">
-                                            <div className="w-10 h-10 bg-gray-900 text-white rounded-xl flex items-center justify-center font-black italic">
-                                                {p.username?.charAt(0).toUpperCase()}
-                                            </div>
-                                            <div>
-                                                <p className="font-bold text-gray-900 leading-none mb-1">{p.full_name}</p>
-                                                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">@{p.username}</p>
-                                            </div>
-                                        </div>
-                                        <span className={`px-4 py-1.5 rounded-full text-[9px] font-black uppercase tracking-widest border ${
-                                            p.status === 'approved' ? 'bg-green-100 text-green-700 border-green-200' : 'bg-yellow-100 text-yellow-700 border-yellow-200'
-                                        }`}>
-                                            {p.status}
-                                        </span>
-                                    </div>
-                                ))
-                            )}
-                        </div>
-                    </div>
-                </div>
-            </div>
-        )}
-
-        {activeTab === 'info' && (
-           <div className="grid md:grid-cols-2 gap-12">
-              <div className="bg-gray-900 p-12 rounded-[3.5rem] text-white leading-relaxed font-medium shadow-2xl relative overflow-hidden">
-                 <div className="absolute top-0 right-0 p-8 opacity-5"><Trophy className="w-48 h-48" /></div>
-                 <h3 className="text-3xl font-black italic uppercase tracking-tighter mb-8 text-green-500">Official Rulebook</h3>
-                 <p className="text-lg text-gray-300 leading-loose">
-                    {tournament.rules_handbook || "Standard ShuttleUp Competitive Rules apply. Matches are 21-point rallies, best of 3 sets. All players must report to their assigned court 15 minutes prior to match start. Late arrivals (10+ min) result in a technical forfeit."}
-                 </p>
+                      </div>
+                  </div>
+                  <div className="space-y-4">
+                      <h4 className="text-[10px] font-black uppercase tracking-widest text-green-600 mb-2">Satellite Visualizer</h4>
+                      <div ref={mapRef} className="h-64 bg-gray-100 rounded-[3rem] border border-gray-100 shadow-inner overflow-hidden flex items-center justify-center text-gray-300 italic font-bold">
+                          {!tournament.latitude && "Coordinates not set for this arena."}
+                      </div>
+                  </div>
               </div>
+          )}
+
+          {activeTab === 'admin' && (
               <div className="space-y-8">
-                 <div className="bg-white p-8 rounded-[3rem] border border-gray-100 shadow-xl flex items-center gap-6">
-                    <div className="bg-green-50 p-4 rounded-2xl text-green-600"><MapPin className="w-8 h-8" /></div>
-                    <div>
-                        <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Arena Location</p>
-                        <p className="text-xl font-black text-gray-900 italic uppercase tracking-tighter">{tournament.location_name || 'Global Circuit'}</p>
-                    </div>
-                 </div>
-                 <div className="bg-white p-8 rounded-[3rem] border border-gray-100 shadow-xl flex items-center gap-6">
-                    <div className="bg-blue-50 p-4 rounded-2xl text-blue-600"><ShieldAlert className="w-8 h-8" /></div>
-                    <div>
-                        <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Tournament Status</p>
-                        <p className="text-xl font-black text-gray-900 italic uppercase tracking-tighter text-capitalize">{tournament.status}</p>
-                    </div>
-                 </div>
+                  <div className="bg-gray-900 p-12 rounded-[3.5rem] text-white flex justify-between items-center">
+                      <div>
+                        <h3 className="text-3xl font-black italic uppercase tracking-tighter">Commander Operations</h3>
+                        <p className="text-gray-400 font-medium">Manage rosters and participant clearance.</p>
+                      </div>
+                      <button onClick={() => setIsRecruiting(true)} className="bg-green-600 text-white px-8 py-4 rounded-2xl font-black uppercase italic shadow-lg shadow-green-900/20 active:scale-95 transition-all">Recruit Player</button>
+                  </div>
+                  <div className="bg-gray-50 p-8 rounded-[3rem]">
+                      <h4 className="font-black uppercase tracking-widest text-[10px] mb-6 text-gray-400">Recruitment Pool ({participants.length})</h4>
+                      <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {participants.map(p => {
+                            const isAssigned = teamMembers.some(m => m.user_id === p.user_id);
+                            return (
+                                <div key={p.id} className="flex justify-between items-center p-5 bg-white rounded-2xl shadow-sm border border-gray-100">
+                                    <div>
+                                      <p className="font-black italic uppercase tracking-tighter">{p.full_name}</p>
+                                      <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">@{p.username}</p>
+                                    </div>
+                                    {isAssigned ? (
+                                        <span className="text-[9px] font-black uppercase px-3 py-1 bg-green-50 text-green-700 rounded-full border border-green-100">Assigned</span>
+                                    ) : (
+                                        <button onClick={() => setIsAssigning(p)} className="p-2 bg-gray-50 hover:bg-green-600 hover:text-white rounded-xl transition-all"><UserPlus className="w-4 h-4" /></button>
+                                    )}
+                                </div>
+                            );
+                        })}
+                      </div>
+                  </div>
               </div>
-           </div>
-        )}
-
-        {activeTab === 'matches' && (
-            <div className="text-center py-24 bg-gray-50 rounded-[4rem] border-2 border-dashed border-gray-100">
-                <LayoutGrid className="w-20 h-20 text-gray-200 mx-auto mb-6" />
-                <h4 className="text-xl font-black italic uppercase tracking-tighter text-gray-900">Battle Matrix Offline</h4>
-                <p className="text-gray-400 font-medium">Matches will be generated once squads are finalized.</p>
-            </div>
-        )}
+          )}
       </div>
 
-      {/* Recruitment Modal */}
-      {isRecruiting && (
+      {/* Modals remained same as before for Schedule, Recruitment, New Squad */}
+      {isAssigning && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-gray-900/60 backdrop-blur-md animate-in fade-in duration-300">
-             <div className="bg-white w-full max-w-xl rounded-[4rem] shadow-2xl overflow-hidden animate-in zoom-in duration-300 border-t-8 border-green-600">
-                <div className="p-12">
-                    <div className="flex justify-between items-center mb-10">
-                        <div>
-                            <h2 className="text-4xl font-black italic uppercase tracking-tighter">Recruit Entity</h2>
-                            <p className="text-gray-500 font-medium mt-1">Assign players by @username or UUID.</p>
-                        </div>
-                        <button onClick={() => setIsRecruiting(false)} className="p-4 hover:bg-gray-100 rounded-full transition-colors"><X className="w-8 h-8 text-gray-300" /></button>
-                    </div>
-
-                    <form onSubmit={handleRecruitPlayer} className="space-y-8">
-                        <div>
-                            <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1 mb-3">Player Identity (Username or ID)</label>
-                            <div className="relative">
-                                <Search className="absolute left-6 top-1/2 -translate-y-1/2 w-6 h-6 text-gray-300" />
-                                <input 
-                                    required
-                                    value={recruitInput}
-                                    onChange={(e) => setRecruitInput(e.target.value)}
-                                    placeholder="e.g. @smashmaster or 550e8400..."
-                                    className="w-full pl-16 pr-8 py-6 bg-gray-50 border border-gray-100 rounded-[2.5rem] outline-none focus:ring-4 focus:ring-green-500/10 font-black italic tracking-tighter text-2xl uppercase"
-                                />
-                            </div>
-                        </div>
-
-                        <div>
-                            <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1 mb-3">Target Squad</label>
-                            <select 
-                                value={recruitTeamId}
-                                onChange={(e) => setRecruitTeamId(e.target.value)}
-                                className="w-full px-8 py-6 bg-gray-50 border border-gray-100 rounded-[2.5rem] outline-none focus:ring-4 focus:ring-green-500/10 font-black italic tracking-tighter text-xl uppercase cursor-pointer appearance-none"
-                            >
-                                <option value="pool">General Arena Pool</option>
-                                <optgroup label="Arena Squads">
-                                    {teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-                                </optgroup>
-                            </select>
-                        </div>
-
-                        <button 
-                            type="submit"
-                            disabled={isSubmitting}
-                            className="w-full bg-gray-900 text-white py-6 rounded-[2.5rem] font-black italic uppercase tracking-tighter text-2xl shadow-2xl transition-all active:scale-95 disabled:opacity-50 flex items-center justify-center gap-4"
-                        >
-                            {isSubmitting ? <RefreshCw className="w-6 h-6 animate-spin" /> : <><Check className="w-8 h-8 text-green-400" /> Finalize Recruit</>}
+             <div className="bg-white w-full max-w-lg rounded-[4rem] p-12 shadow-2xl animate-in zoom-in duration-300">
+                <div className="flex justify-between items-center mb-8">
+                    <h2 className="text-4xl font-black italic uppercase tracking-tighter">Assign to Squad</h2>
+                    <button onClick={() => setIsAssigning(null)} className="p-4 hover:bg-gray-100 rounded-full transition-colors"><X /></button>
+                </div>
+                <div className="space-y-4 max-h-[400px] overflow-y-auto pr-4 custom-scrollbar">
+                    {teams.map(team => (
+                        <button key={team.id} onClick={() => handleAssignToTeam(team.id)} className="w-full text-left p-6 bg-gray-50 rounded-3xl hover:bg-green-600 hover:text-white transition-all group flex items-center justify-between">
+                            <span className="font-black italic uppercase text-xl tracking-tighter">{team.name}</span>
+                            <span className="text-[10px] font-black uppercase">{team.member_count || 0} Members</span>
                         </button>
-                    </form>
+                    ))}
                 </div>
              </div>
           </div>
       )}
-
-      {/* Create Team Modal */}
-      {isCreatingTeam && (
+      
+      {isScheduling && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-gray-900/60 backdrop-blur-md animate-in fade-in duration-300">
-             <div className="bg-white w-full max-w-lg rounded-[4rem] shadow-2xl overflow-hidden animate-in zoom-in duration-300 border-t-8 border-gray-900">
-                <div className="p-12">
-                    <div className="flex justify-between items-center mb-10">
-                        <div>
-                            <h2 className="text-4xl font-black italic uppercase tracking-tighter">Form Squad</h2>
-                            <p className="text-gray-500 font-medium mt-1">Initialize a new team node.</p>
-                        </div>
-                        <button onClick={() => setIsCreatingTeam(false)} className="p-4 hover:bg-gray-100 rounded-full transition-colors"><X className="w-8 h-8 text-gray-300" /></button>
-                    </div>
-
-                    <form onSubmit={handleCreateTeam} className="space-y-8">
-                        <div>
-                            <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1 mb-3">Squad Designation</label>
-                            <input 
-                                required
-                                value={newTeamName}
-                                onChange={(e) => setNewTeamName(e.target.value)}
-                                placeholder="e.g. ACE SHUTTLERS"
-                                className="w-full px-8 py-6 bg-gray-50 border border-gray-100 rounded-[2.5rem] outline-none focus:ring-4 focus:ring-gray-900/10 font-black italic tracking-tighter text-2xl uppercase"
-                            />
-                        </div>
-
-                        <button 
-                            type="submit"
-                            disabled={isSubmitting}
-                            className="w-full bg-green-600 text-white py-6 rounded-[2.5rem] font-black italic uppercase tracking-tighter text-2xl shadow-2xl transition-all active:scale-95 disabled:opacity-50 flex items-center justify-center gap-4"
-                        >
-                            {isSubmitting ? <RefreshCw className="w-6 h-6 animate-spin" /> : <><PlusCircle className="w-8 h-8 text-white" /> Create Squad</>}
-                        </button>
-                    </form>
+             <div className="bg-white w-full max-w-2xl rounded-[4rem] p-12 shadow-2xl animate-in zoom-in duration-300 border-t-8 border-blue-600">
+                <div className="flex justify-between items-center mb-10">
+                    <h2 className="text-4xl font-black italic uppercase tracking-tighter">Plan Battle</h2>
+                    <button onClick={() => setIsScheduling(false)} className="p-4 hover:bg-gray-100 rounded-full transition-colors"><X /></button>
                 </div>
+                <form onSubmit={handleScheduleMatch} className="space-y-8">
+                    <div className="grid grid-cols-2 gap-6">
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Home Squad</label>
+                          <select required className="w-full px-6 py-5 bg-gray-50 border rounded-2xl font-black italic text-xl uppercase" value={scheduleData.team1Id} onChange={e => setScheduleData({...scheduleData, team1Id: e.target.value})}>
+                            <option value="">Select...</option>
+                            {teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                          </select>
+                        </div>
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Away Squad</label>
+                          <select required className="w-full px-6 py-5 bg-gray-50 border rounded-2xl font-black italic text-xl uppercase" value={scheduleData.team2Id} onChange={e => setScheduleData({...scheduleData, team2Id: e.target.value})}>
+                            <option value="">Select...</option>
+                            {teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                          </select>
+                        </div>
+                    </div>
+                    <div className="space-y-2">
+                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Launch Time</label>
+                        <input type="datetime-local" required className="w-full px-8 py-6 bg-gray-50 border rounded-[2rem] font-black italic text-2xl" onChange={e => setScheduleData({...scheduleData, time: e.target.value})}/>
+                    </div>
+                    <button type="submit" className="w-full bg-blue-600 text-white py-8 rounded-[2.5rem] font-black italic uppercase text-2xl shadow-xl active:scale-95 transition-all">Initialize Battle</button>
+                </form>
              </div>
           </div>
       )}

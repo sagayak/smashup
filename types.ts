@@ -50,9 +50,10 @@ export interface TournamentParticipant {
 export interface TeamMember {
   id: string;
   team_id: string;
+  tournament_id: string;
   user_id: string;
-  full_name?: string;
-  username?: string;
+  full_name: string;
+  username: string;
 }
 
 export interface Match {

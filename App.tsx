@@ -1,8 +1,10 @@
 
 import React, { useState, useEffect } from 'react';
 import { HashRouter, Routes, Route, Navigate, Link, useNavigate } from 'react-router-dom';
-import { Trophy, Shield, LogOut, LayoutDashboard, CreditCard, Menu, X, Database, Globe } from 'lucide-react';
-import { supabase } from './services/supabase';
+import { Trophy, Shield, LogOut, LayoutDashboard, CreditCard, Menu, X, Cloud, Globe } from 'lucide-react';
+import { auth, db, dbService } from './services/firebase';
+import { onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js';
+import { doc, onSnapshot } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js';
 import { Profile } from './types';
 
 // Pages
@@ -22,45 +24,27 @@ const AppContent: React.FC = () => {
   const navigate = useNavigate();
 
   useEffect(() => {
-    fetchSession();
-
-    const handleSync = (e: MessageEvent) => {
-      if (e.data.event === 'CREDIT_UPDATE') {
-        const payload = e.data.payload;
-        setProfile(prev => {
-          if (prev && prev.id === payload.id) {
-            return { ...prev, credits: payload.credits };
+    const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
+      if (user) {
+        // Real-time listener for the user's profile doc (credits, role)
+        const unsubscribeProfile = onSnapshot(doc(db, "profiles", user.uid), (snapshot) => {
+          if (snapshot.exists()) {
+            setProfile(snapshot.data() as Profile);
           }
-          return prev;
+          setLoading(false);
         });
+        return () => unsubscribeProfile();
+      } else {
+        setProfile(null);
+        setLoading(false);
       }
-    };
+    });
 
-    const syncChannel = new BroadcastChannel('shuttleup_sync');
-    syncChannel.addEventListener('message', handleSync);
-    
-    return () => {
-      syncChannel.removeEventListener('message', handleSync);
-      syncChannel.close();
-    };
+    return () => unsubscribeAuth();
   }, []);
 
-  const fetchSession = async () => {
-    try {
-      const { data } = await (supabase as any).auth.getSession();
-      if (data?.session) {
-        setProfile(data.session.user);
-      }
-    } catch (e) {
-      console.error("Session fetch failed", e);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const handleLogout = async () => {
-    await (supabase as any).auth.signOut();
-    setProfile(null);
+    await dbService.auth.signOut();
     navigate('/login');
   };
 
@@ -68,9 +52,9 @@ const AppContent: React.FC = () => {
     return (
       <div className="min-h-screen flex items-center justify-center bg-court text-white">
         <div className="text-center">
-          <Database className="w-16 h-16 mx-auto mb-4 animate-pulse text-green-300" />
+          <Cloud className="w-16 h-16 mx-auto mb-4 animate-pulse text-green-300" />
           <h1 className="text-3xl font-black italic uppercase tracking-tighter">ShuttleUp</h1>
-          <p className="mt-2 text-green-200 font-black italic uppercase tracking-widest text-xs">Connecting to CockroachDB Cluster...</p>
+          <p className="mt-2 text-green-200 font-black italic uppercase tracking-widest text-xs">Synchronizing with Firestore Cloud...</p>
         </div>
       </div>
     );
@@ -157,9 +141,9 @@ const AppContent: React.FC = () => {
           <div className="flex items-center gap-4">
              <div className="flex items-center gap-2 px-3 py-1 bg-green-50 text-green-600 rounded-full border border-green-100 shadow-sm">
                 <Globe className="w-3 h-3" />
-                <span className="text-[10px] font-black uppercase tracking-widest">Cloud Bridge Active</span>
+                <span className="text-[10px] font-black uppercase tracking-widest">Firestore Live</span>
              </div>
-             <h2 className="hidden sm:block text-sm font-black italic uppercase tracking-tighter text-gray-300 tracking-widest">v1.2.0-STABLE</h2>
+             <h2 className="hidden sm:block text-sm font-black italic uppercase tracking-tighter text-gray-300 tracking-widest">v2.0.0-FIRESTORE</h2>
           </div>
           <div className="flex items-center gap-4">
              <div className="hidden sm:flex flex-col items-end">

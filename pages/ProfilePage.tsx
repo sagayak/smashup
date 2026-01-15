@@ -1,7 +1,8 @@
 
 import React, { useState, useEffect } from 'react';
-import { CreditCard, History, TrendingUp, TrendingDown, BadgeCheck, Shield, ChevronRight, Database, Wifi, WifiOff } from 'lucide-react';
-import { supabase } from '../services/supabase';
+import { CreditCard, History, BadgeCheck, Database, Cloud } from 'lucide-react';
+import { db, dbService } from '../services/firebase';
+import { collection, query, where, orderBy, limit, onSnapshot } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js';
 import { Profile, CreditLog } from '../types';
 
 interface ProfilePageProps {
@@ -13,26 +14,32 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ profile }) => {
   const [loadingLogs, setLoadingLogs] = useState(true);
 
   useEffect(() => {
-    fetchLogs();
-  }, [profile.id]);
-
-  const fetchLogs = async () => {
-    // In current implementation logs might be empty if not implemented in rpc
-    setLoadingLogs(false);
-  };
-
-  const simulateAddCredits = async () => {
-    const amount = 500;
-    const { error } = await supabase.rpc('update_user_credits', {
-      target_user_id: profile.id,
-      amount_change: amount,
-      log_description: "Simulated credit top-up",
-      log_action: 'add'
+    const q = query(
+      collection(db, "credit_logs"), 
+      where("user_id", "==", profile.id),
+      orderBy("created_at", "desc"),
+      limit(10)
+    );
+    
+    const unsub = onSnapshot(q, (snap) => {
+      setLogs(snap.docs.map(d => d.data() as CreditLog));
+      setLoadingLogs(false);
     });
 
-    if (!error) {
-      alert("Added 500 simulated credits!");
-      window.location.reload(); 
+    return () => unsub();
+  }, [profile.id]);
+
+  const simulateAddCredits = async () => {
+    try {
+      await dbService.profiles.updateCredits(
+        profile.id, 
+        500, 
+        "Simulated credit top-up", 
+        'add'
+      );
+      alert("Added 500 simulated credits via Firestore transaction!");
+    } catch (e: any) {
+      alert(e.message);
     }
   };
 
@@ -40,7 +47,6 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ profile }) => {
     <div className="max-w-6xl mx-auto space-y-8 animate-in fade-in duration-500">
       <div className="grid lg:grid-cols-3 gap-8">
         
-        {/* Profile Card */}
         <div className="lg:col-span-1 space-y-6">
           <div className="bg-white p-8 rounded-[2.5rem] border border-gray-100 shadow-xl relative overflow-hidden">
              <div className="absolute top-0 right-0 w-32 h-32 bg-green-500/5 -mr-16 -mt-16 rounded-full" />
@@ -53,7 +59,7 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ profile }) => {
                 <div className="mt-4 flex items-center gap-2">
                    <span className="bg-gray-900 text-white text-[10px] font-bold uppercase tracking-widest px-3 py-1 rounded-full">{profile.role}</span>
                    <span className="bg-green-50 text-green-700 text-[10px] font-bold uppercase tracking-widest px-3 py-1 rounded-full flex items-center gap-1">
-                      <BadgeCheck className="w-3 h-3" /> Verified
+                      <BadgeCheck className="w-3 h-3" /> Cloud Verified
                    </span>
                 </div>
              </div>
@@ -76,39 +82,50 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ profile }) => {
           <div className="bg-white p-6 rounded-[2.5rem] border border-gray-100 shadow-sm space-y-4">
              <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2">
                 <Database className="w-5 h-5 text-green-600" />
-                Cluster Node Status
+                Firestore Node Status
              </h3>
              <div className="p-4 bg-gray-50 rounded-2xl border border-gray-100">
                 <div className="flex items-center justify-between mb-2">
                    <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Protocol</span>
-                   <span className="text-[10px] font-black text-green-600 uppercase">Data API v1</span>
+                   <span className="text-[10px] font-black text-green-600 uppercase">GCP Firestore</span>
                 </div>
                 <div className="flex items-center gap-3">
                    <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-                   <p className="text-sm font-bold text-gray-700">CockroachDB Serverless</p>
+                   <p className="text-sm font-bold text-gray-700">Online & Synchronized</p>
                 </div>
-                <p className="text-[10px] text-gray-400 mt-2 font-medium">Link established via HTTP Secure Proxy.</p>
              </div>
           </div>
         </div>
 
-        {/* Credit Logs */}
         <div className="lg:col-span-2 space-y-6">
           <div className="flex items-center justify-between">
              <h3 className="text-2xl font-black italic uppercase tracking-tighter text-gray-900 flex items-center gap-3">
                 <History className="w-6 h-6 text-green-600" />
-                Arena Activity
+                Arena Activity (Firestore Log)
              </h3>
           </div>
 
-          <div className="bg-white rounded-[3.5rem] border border-gray-100 shadow-sm overflow-hidden p-12 text-center">
-             <div className="max-w-xs mx-auto space-y-4">
-                <div className="bg-gray-50 w-20 h-20 rounded-full flex items-center justify-center mx-auto border-2 border-dashed border-gray-200">
-                   <Wifi className="w-8 h-8 text-gray-200" />
-                </div>
-                <h4 className="text-xl font-black italic uppercase tracking-tighter text-gray-900">Activity Log Synced</h4>
-                <p className="text-gray-400 text-sm font-medium leading-relaxed">Your match participation and credit history are stored securely in the CockroachDB cluster.</p>
-             </div>
+          <div className="bg-white rounded-[3.5rem] border border-gray-100 shadow-sm overflow-hidden p-8">
+            {logs.length === 0 ? (
+              <div className="text-center py-12">
+                <Cloud className="w-12 h-12 text-gray-200 mx-auto mb-4" />
+                <p className="text-gray-400 font-bold uppercase tracking-widest text-xs">No activity recorded on this node</p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {logs.map(log => (
+                  <div key={log.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-2xl border border-transparent hover:border-green-100 transition-all">
+                    <div>
+                      <p className="font-bold text-gray-800">{log.description}</p>
+                      <p className="text-[10px] text-gray-400 uppercase tracking-widest">{new Date(log.created_at).toLocaleString()}</p>
+                    </div>
+                    <div className={`text-xl font-black italic tracking-tighter ${log.amount > 0 ? 'text-green-600' : 'text-red-500'}`}>
+                      {log.amount > 0 ? '+' : ''}{log.amount}c
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       </div>

@@ -1,8 +1,9 @@
 
 import React, { useState, useEffect } from 'react';
-import { Trophy, Calendar, MapPin, Plus, Loader2, Search, Filter, ShieldCheck, AlertCircle, Hash, Send } from 'lucide-react';
+import { Trophy, Calendar, MapPin, Plus, Loader2, Search, Filter, ShieldCheck, AlertCircle, Hash, Send, Crosshair } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
-import { supabase } from '../services/supabase';
+import { db, dbService } from '../services/firebase';
+import { collection, query, orderBy, onSnapshot, where, getDocs } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js';
 import { Tournament, Profile } from '../types';
 
 interface TournamentsPageProps {
@@ -18,29 +19,40 @@ const TournamentsPage: React.FC<TournamentsPageProps> = ({ profile }) => {
     name: '',
     description: '',
     location_name: '',
+    latitude: 0,
+    longitude: 0,
     start_date: new Date().toISOString().split('T')[0],
   });
   const navigate = useNavigate();
 
   useEffect(() => {
-    fetchTournaments();
+    const q = query(collection(db, "tournaments"), orderBy("created_at", "desc"));
+    const unsub = onSnapshot(q, (snap) => {
+      setTournaments(snap.docs.map(d => d.data() as Tournament));
+      setLoading(false);
+    });
+    return () => unsub();
   }, []);
 
-  const fetchTournaments = async () => {
-    setLoading(true);
-    const { data, error } = await supabase
-      .from('tournaments')
-      .select('*')
-      .order('created_at', { ascending: false });
-
-    if (data) setTournaments(data);
-    setLoading(false);
+  const handleLocateMe = () => {
+    if (!navigator.geolocation) return alert("Geolocation not supported.");
+    navigator.geolocation.getCurrentPosition((pos) => {
+      setNewTournament(prev => ({
+        ...prev,
+        latitude: pos.coords.latitude,
+        longitude: pos.coords.longitude
+      }));
+      alert("Coordinates locked! Precise arena location set.");
+    });
   };
 
   const handleSearchById = async () => {
     if (!searchId) return;
-    const { data, error } = await supabase.from('tournaments').select('*').eq('share_id', searchId.toUpperCase()).single();
-    if (data) {
+    const q = query(collection(db, "tournaments"), where("share_id", "==", searchId.toUpperCase()));
+    const snap = await getDocs(q);
+    
+    if (!snap.empty) {
+      const data = snap.docs[0].data() as Tournament;
       navigate(`/tournament/${data.id}`);
     } else {
       alert("Tournament Node not found in cluster.");
@@ -50,40 +62,29 @@ const TournamentsPage: React.FC<TournamentsPageProps> = ({ profile }) => {
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (profile.credits < 200) {
-      alert("Insufficient credits. Hosting a tournament costs 200 credits.");
+      alert("Insufficient credits. Hosting costs 200c.");
       return;
     }
 
-    if (!confirm("Are you sure? 200 credits will be deducted from your account to host this tournament.")) return;
+    if (!confirm("200 credits will be deducted. Proceed?")) return;
 
-    const { error: creditError } = await supabase.rpc('update_user_credits', {
-      target_user_id: profile.id,
-      amount_change: -200,
-      log_description: `Hosted tournament: ${newTournament.name}`,
-      log_action: 'tournament_fee'
-    });
+    try {
+      const tournament = await dbService.tournaments.create(
+        {
+          name: newTournament.name,
+          description: newTournament.description,
+          location_name: newTournament.location_name,
+          start_date: newTournament.start_date,
+          latitude: newTournament.latitude,
+          longitude: newTournament.longitude
+        },
+        profile.id
+      );
 
-    if (creditError) {
-      alert(creditError.message);
-      return;
-    }
-
-    const { data: tournament, error: insertError } = await supabase
-      .from('tournaments')
-      .insert({
-        ...newTournament,
-        organizer_id: profile.id,
-        status: 'published'
-      })
-      .select()
-      .single();
-
-    if (!insertError) {
       setIsCreating(false);
-      fetchTournaments();
-      alert(`Success! Tournament Created. Share ID: ${tournament.share_id}`);
-    } else {
-      alert(insertError.message);
+      alert(`Success! Arena Created. Share ID: ${tournament.share_id}`);
+    } catch (err: any) {
+      alert(err.message || "Failed to create tournament");
     }
   };
 
@@ -206,7 +207,6 @@ const TournamentsPage: React.FC<TournamentsPageProps> = ({ profile }) => {
         </div>
       </div>
 
-      {/* Modal for Create */}
       {isCreating && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-gray-900/60 backdrop-blur-md animate-in fade-in duration-300">
           <div className="bg-white w-full max-w-2xl rounded-[3.5rem] shadow-2xl overflow-hidden animate-in zoom-in duration-300 border-t-8 border-green-600">
@@ -237,7 +237,7 @@ const TournamentsPage: React.FC<TournamentsPageProps> = ({ profile }) => {
                   <div>
                     <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1 mb-2">Arena Details & Rules</label>
                     <textarea 
-                      placeholder="Briefly describe the match format and eligibility..."
+                      placeholder="Briefly describe the match format..."
                       className="w-full px-8 py-5 bg-gray-50 border border-gray-100 rounded-2xl outline-none focus:ring-4 focus:ring-green-500/10 min-h-[140px] font-medium"
                       value={newTournament.description}
                       onChange={(e) => setNewTournament({...newTournament, description: e.target.value})}
@@ -245,7 +245,10 @@ const TournamentsPage: React.FC<TournamentsPageProps> = ({ profile }) => {
                   </div>
                   <div className="grid grid-cols-2 gap-6">
                     <div>
-                      <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1 mb-2">Location Node</label>
+                      <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1 mb-2 flex justify-between">
+                         Location Node
+                         <button type="button" onClick={handleLocateMe} className="text-green-600 flex items-center gap-1 hover:underline"><Crosshair className="w-3 h-3"/> Use GPS</button>
+                      </label>
                       <input 
                         placeholder="e.g. Center Court"
                         className="w-full px-8 py-5 bg-gray-50 border border-gray-100 rounded-2xl outline-none focus:ring-4 focus:ring-green-500/10 font-bold"

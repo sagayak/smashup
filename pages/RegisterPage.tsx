@@ -1,8 +1,8 @@
 
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { supabase, mapUsernameToEmail } from '../services/supabase';
-import { Trophy, User, Lock, CheckCircle2, WifiOff, Database } from 'lucide-react';
+import { dbService } from '../services/firebase';
+import { Trophy, User, Lock, CheckCircle2, WifiOff, Cloud } from 'lucide-react';
 import { UserRole } from '../types';
 
 const RegisterPage: React.FC = () => {
@@ -21,34 +21,17 @@ const RegisterPage: React.FC = () => {
     setLoading(true);
     setError(null);
 
-    const username = formData.username.toLowerCase().trim().replace(/[^a-z0-9]/g, '');
-    if (username.length < 3) {
-      setError("Username must be at least 3 alphanumeric characters.");
-      setLoading(false);
-      return;
-    }
-
     try {
-      const { data, error: authError } = await (supabase as any).auth.signUp({
-        email: mapUsernameToEmail(username),
-        password: formData.password,
-        options: {
-          data: {
-            username: username,
-            full_name: formData.fullName,
-            role: formData.role,
-          }
-        }
-      });
-
-      if (authError) throw authError;
-
-      if (data && data.user) {
-        alert("Success! Your profile is registered on the global cluster.");
-        navigate('/login');
-      }
+      await dbService.auth.signUp(
+        formData.username,
+        formData.fullName,
+        formData.role,
+        formData.password
+      );
+      alert("Success! Your profile is registered on the global Firestore cluster.");
+      navigate('/login');
     } catch (err: any) {
-      setError(err.message || "Registration failed. The database bridge is blocked.");
+      setError(err.message || "Registration failed. The cloud node is blocked.");
     } finally {
       setLoading(false);
     }
@@ -62,9 +45,9 @@ const RegisterPage: React.FC = () => {
             <Trophy className="w-64 h-64 -mr-16 -mt-16" />
           </div>
           <h2 className="text-5xl font-black italic uppercase tracking-tighter mb-4 leading-none">The Court<br/>Is Ready.</h2>
-          <p className="text-green-100 text-lg mb-8 opacity-90 font-medium">ShuttleUp: Your ultimate badminton tournament partner.</p>
+          <p className="text-green-100 text-lg mb-8 opacity-90 font-medium">ShuttleUp: Powered by Cloud Firestore.</p>
           <div className="space-y-4">
-            {['Direct Cloud Storage', 'Instant Scoring Sync', 'Global Rankings'].map(f => (
+            {['Global Data Sync', 'NoSQL Performance', 'Instant Updates'].map(f => (
               <div key={f} className="flex items-center gap-3">
                 <CheckCircle2 className="w-5 h-5 text-green-300" />
                 <span className="font-black italic uppercase tracking-tighter text-sm">{f}</span>
@@ -76,7 +59,7 @@ const RegisterPage: React.FC = () => {
         <div className="p-12 overflow-y-auto max-h-[90vh]">
           <div className="mb-10">
             <h1 className="text-4xl font-black text-gray-900 tracking-tight italic uppercase">Create Profile</h1>
-            <p className="text-gray-500 mt-1 font-medium text-sm">Synchronizing with CockroachDB Cluster.</p>
+            <p className="text-gray-500 mt-1 font-medium text-sm">Synchronizing with Firebase Cluster.</p>
           </div>
 
           {error && (

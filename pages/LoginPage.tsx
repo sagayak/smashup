@@ -1,8 +1,8 @@
 
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { supabase, mapUsernameToEmail } from '../services/supabase';
-import { Trophy, Lock, User, ShieldCheck, Database, WifiOff, ExternalLink, Info } from 'lucide-react';
+import { dbService } from '../services/firebase';
+import { Trophy, Lock, User, ShieldCheck, Cloud, WifiOff } from 'lucide-react';
 
 const LoginPage: React.FC = () => {
   const [username, setUsername] = useState('');
@@ -15,37 +15,26 @@ const LoginPage: React.FC = () => {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(false); // Reset loading UI if previously stuck
     setLoading(true);
     setError(null);
 
     try {
-      const { data: user, error: userError } = await supabase.from('profiles').select().eq('username', username.toLowerCase()).single();
-      
-      if (userError) throw userError;
+      // In a real Firestore app, we'd query the profile first to check role/pin
+      const profile = await dbService.auth.signIn(username, password);
 
-      if (user?.role === 'superadmin' && !showPin) {
+      if (profile.role === 'superadmin' && !showPin) {
         setShowPin(true);
         setLoading(false);
         return;
       }
 
-      if (user?.role === 'superadmin' && pin !== '31218') {
+      if (profile.role === 'superadmin' && pin !== '31218') {
         throw new Error("ACCESS DENIED: Invalid Super PIN.");
       }
 
-      const { data, error: authError } = await supabase.auth.signInWithPassword({
-        email: mapUsernameToEmail(username),
-        password,
-      });
-
-      if (authError) throw authError;
-      if (data.user) {
-        navigate('/');
-        window.location.reload(); 
-      }
+      navigate('/');
     } catch (err: any) {
-      setError(err.message || "Authentication failed. The Arena is unreachable.");
+      setError(err.message || "Authentication failed. Check your credentials.");
     } finally {
       setLoading(false);
     }
@@ -64,7 +53,7 @@ const LoginPage: React.FC = () => {
             </div>
             <h1 className="text-4xl font-black text-gray-900 italic uppercase tracking-tighter">Enter Arena</h1>
             <p className="text-gray-400 mt-2 font-medium flex items-center gap-2">
-              <Database className="w-4 h-4" /> CockroachDB Global Sync
+              <Cloud className="w-4 h-4" /> Firestore Global Sync
             </p>
           </div>
 
@@ -77,15 +66,6 @@ const LoginPage: React.FC = () => {
                 <div className="text-[10px] text-red-700 leading-relaxed flex-1">
                   <p className="font-black mb-1 uppercase tracking-wider italic">Sync Blocked</p>
                   <p className="font-bold leading-tight mb-2">{error}</p>
-                  
-                  <div className="bg-white/50 p-3 rounded-xl border border-red-100 mt-2 space-y-2">
-                    <p className="font-black uppercase tracking-widest text-[8px] text-red-900">Troubleshooting:</p>
-                    <ul className="list-disc ml-3 space-y-1 font-medium">
-                      <li>Disable Ad-Blockers (CORS Proxies are often flagged)</li>
-                      <li>Try Incognito mode or a different browser</li>
-                      <li>Ensure your network allows 'allorigins.win'</li>
-                    </ul>
-                  </div>
                 </div>
               </div>
             </div>
@@ -145,13 +125,13 @@ const LoginPage: React.FC = () => {
               disabled={loading}
               className="w-full bg-gray-900 hover:bg-black text-white font-black italic uppercase tracking-tighter text-2xl py-6 rounded-[2rem] shadow-2xl transition-all active:scale-95 disabled:opacity-50 mt-4"
             >
-              {loading ? "Connecting..." : "Sign In"}
+              {loading ? "Establishing Link..." : "Sign In"}
             </button>
           </form>
 
           <div className="mt-10 pt-10 border-t border-gray-50 text-center">
             <p className="text-gray-400 font-bold text-[11px] uppercase tracking-widest">
-              No account in cluster?{' '}
+              No account in cloud?{' '}
               <Link to="/register" className="text-green-600 font-black hover:underline underline-offset-4">
                 Register Now
               </Link>
