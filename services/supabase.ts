@@ -9,12 +9,13 @@ import { Profile, Tournament, Team, Match, CreditLog, UserRole } from '../types'
 // --- COCKROACHDB CLOUD CONFIGURATION ---
 export const COCKROACH_CONFIG = {
   ENABLED: true, 
-  // Verified list of public proxies. Order matters for preflight success.
+  // Prioritized list of proxies for handling Authorization headers
   PROXIES: [
-    'https://api.allorigins.win/raw?url=', // Most stable for Auth headers
-    'https://api.codetabs.com/v1/proxy?quest=', // High performance
-    'https://corsproxy.io/?', // Backup
-    'https://thingproxy.freeboard.io/fetch/' // Last resort
+    '', // Attempt direct connection first (some environments allow it)
+    'https://api.allorigins.win/raw?url=', // High reliability
+    'https://api.codetabs.com/v1/proxy?quest=', // Good performance
+    'https://thingproxy.freeboard.io/fetch/', // Old but gold
+    'https://corsproxy.io/?' // Last resort
   ],
   BASE_URL: 'https://api.cockroachlabs.cloud/v1/clusters/981e97c4-344d-4f2c-a9e9-d726f27f6b83/sql',
   API_KEY: 'CCDB1_2saEIW8Qkw8WCo09DvbO9c_zhu4T1zHTImuNmpDpsFabVBE6fpGvWH2HCxQb4LW',
@@ -34,11 +35,12 @@ class CockroachService {
     let lastError = "";
 
     for (const proxyBase of COCKROACH_CONFIG.PROXIES) {
-        const targetUrl = proxyBase + encodeURIComponent(COCKROACH_CONFIG.BASE_URL);
+        const isDirect = proxyBase === '';
+        const targetUrl = isDirect ? COCKROACH_CONFIG.BASE_URL : proxyBase + encodeURIComponent(COCKROACH_CONFIG.BASE_URL);
         
         try {
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 8000); 
+            const timeoutId = setTimeout(() => controller.abort(), isDirect ? 2000 : 8000); 
 
             const response = await fetch(targetUrl, {
                 method: 'POST',
@@ -58,15 +60,15 @@ class CockroachService {
 
             if (!response.ok) {
                 const result = await response.json().catch(() => ({}));
-                lastError = result.message || result.error || `Error ${response.status}`;
+                lastError = result.message || result.error || `HTTP ${response.status}`;
                 continue; 
             }
 
             const result = await response.json();
             return { data: result.rows || [], error: null };
         } catch (e: any) {
-            lastError = e.name === 'AbortError' ? 'Proxy timed out' : e.message;
-            console.warn(`Connection via [${proxyBase}] failed:`, lastError);
+            lastError = e.name === 'AbortError' ? 'Connection timed out' : e.message;
+            console.warn(`Connection via [${proxyBase || 'DIRECT'}] failed:`, lastError);
             continue;
         }
     }
@@ -74,7 +76,7 @@ class CockroachService {
     return { 
         data: null, 
         error: { 
-            message: `CLOUD_SYNC_ERROR: The Arena is unreachable. (Diagnostic: ${lastError}). Please disable any Ad-Blockers or VPNs that might be interfering with our database bridge.` 
+            message: `ARENA_LINK_FAILED: No stable path to CockroachDB cloud. Diagnostic: ${lastError}.`
         } 
     };
   }
@@ -100,7 +102,7 @@ class CockroachService {
       const sql = `SELECT * FROM profiles WHERE username = '${esc(username)}' AND password_hash = '${esc(password)}' LIMIT 1;`;
       const { data, error } = await this.execute(sql);
       if (error) return { error };
-      if (!data || data.length === 0) return { error: { message: "Invalid credentials. Please check your username and password." } };
+      if (!data || data.length === 0) return { error: { message: "Invalid credentials. Please verify your username and password." } };
       localStorage.setItem(this.sessionKey, JSON.stringify(data[0]));
       return { data: { user: data[0] }, error: null };
     },

@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { supabase, mapUsernameToEmail } from '../services/supabase';
-import { Trophy, Lock, User, AlertCircle, ShieldCheck, Database, WifiOff } from 'lucide-react';
+import { Trophy, Lock, User, ShieldCheck, Database, WifiOff, ExternalLink, Info } from 'lucide-react';
 
 const LoginPage: React.FC = () => {
   const [username, setUsername] = useState('');
@@ -15,11 +15,14 @@ const LoginPage: React.FC = () => {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+    setLoading(false); // Reset loading UI if previously stuck
     setLoading(true);
     setError(null);
 
     try {
-      const { data: user } = await supabase.from('profiles').select().eq('username', username.toLowerCase()).single();
+      const { data: user, error: userError } = await supabase.from('profiles').select().eq('username', username.toLowerCase()).single();
+      
+      if (userError) throw userError;
 
       if (user?.role === 'superadmin' && !showPin) {
         setShowPin(true);
@@ -42,7 +45,7 @@ const LoginPage: React.FC = () => {
         window.location.reload(); 
       }
     } catch (err: any) {
-      setError(err.message || "Authentication failed. The Arena is currently unreachable.");
+      setError(err.message || "Authentication failed. The Arena is unreachable.");
     } finally {
       setLoading(false);
     }
@@ -66,14 +69,23 @@ const LoginPage: React.FC = () => {
           </div>
 
           {error && (
-            <div className="mb-8 p-6 bg-red-50 border-2 border-red-200 rounded-[2.5rem] flex flex-col gap-2 animate-in shake duration-300">
-              <div className="flex items-center gap-4">
-                <div className="bg-red-500 p-2 rounded-xl">
+            <div className="mb-8 p-6 bg-red-50 border-2 border-red-200 rounded-[2.5rem] flex flex-col gap-4 animate-in shake duration-300">
+              <div className="flex items-start gap-4">
+                <div className="bg-red-500 p-2 rounded-xl mt-1">
                   <WifiOff className="w-5 h-5 text-white" />
                 </div>
                 <div className="text-[10px] text-red-700 leading-relaxed flex-1">
                   <p className="font-black mb-1 uppercase tracking-wider italic">Sync Blocked</p>
-                  <p className="font-bold leading-tight">{error}</p>
+                  <p className="font-bold leading-tight mb-2">{error}</p>
+                  
+                  <div className="bg-white/50 p-3 rounded-xl border border-red-100 mt-2 space-y-2">
+                    <p className="font-black uppercase tracking-widest text-[8px] text-red-900">Troubleshooting:</p>
+                    <ul className="list-disc ml-3 space-y-1 font-medium">
+                      <li>Disable Ad-Blockers (CORS Proxies are often flagged)</li>
+                      <li>Try Incognito mode or a different browser</li>
+                      <li>Ensure your network allows 'allorigins.win'</li>
+                    </ul>
+                  </div>
                 </div>
               </div>
             </div>
@@ -133,7 +145,7 @@ const LoginPage: React.FC = () => {
               disabled={loading}
               className="w-full bg-gray-900 hover:bg-black text-white font-black italic uppercase tracking-tighter text-2xl py-6 rounded-[2rem] shadow-2xl transition-all active:scale-95 disabled:opacity-50 mt-4"
             >
-              {loading ? "Establishing Link..." : "Sign In"}
+              {loading ? "Connecting..." : "Sign In"}
             </button>
           </form>
 
