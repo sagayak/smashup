@@ -10,6 +10,7 @@ export const isSupabaseConfigured = true;
 
 export const dbService = {
   auth: {
+    // Signup with Real Email + Metadata for the Trigger
     signUp: async (email: string, username: string, fullName: string, role: string, password?: string) => {
       const { data, error } = await supabase.auth.signUp({
         email,
@@ -25,20 +26,17 @@ export const dbService = {
       if (error) throw error;
       return data;
     },
+
+    // Signin with Real Email
     signIn: async (email: string, password?: string) => {
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password: password || "shuttleup123"
       });
       
-      if (error) {
-        if (error.message.includes("Email not confirmed")) {
-          throw new Error("ACCESS BLOCKED: Please disable 'Confirm email' in your Supabase Auth Settings.");
-        }
-        throw error;
-      }
+      if (error) throw error;
 
-      // Explicit check for profile existence
+      // Fetch the public profile associated with this UUID
       const { data: profile, error: profileError } = await supabase
         .from('profiles')
         .select('*')
@@ -46,22 +44,30 @@ export const dbService = {
         .single();
         
       if (profileError || !profile) {
-        throw new Error("PROFILE_SYNC_PENDING: Your account is ready, but the database profile is still syncing. Please wait 5 seconds and login again.");
+        throw new Error("Profile synchronization pending. Please refresh in a moment.");
       }
       return profile as Profile;
     },
+
+    // Standard Google OAuth
     signInWithGoogle: async () => {
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
-          redirectTo: window.location.origin
+          redirectTo: window.location.origin,
+          queryParams: {
+            access_type: 'offline',
+            prompt: 'consent',
+          },
         }
       });
       if (error) throw error;
       return data;
     },
+
     signOut: () => supabase.auth.signOut()
   },
+
   profiles: {
     updateCredits: async (userId: string, amount: number, desc: string, action: string) => {
       const { error } = await supabase.rpc('update_credits', {
@@ -73,6 +79,7 @@ export const dbService = {
       if (error) throw error;
     }
   },
+
   tournaments: {
     create: async (data: Partial<Tournament>, organizerId: string) => {
       const shareId = `SHTL-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
@@ -89,10 +96,12 @@ export const dbService = {
       }).select().single();
       
       if (error) throw error;
+      // Atomic deduction
       await dbService.profiles.updateCredits(organizerId, -200, `Hosted Tournament: ${data.name}`, 'deduct');
       return tournament as Tournament;
     }
   },
+
   teams: {
     create: async (tournamentId: string, name: string) => {
       const { data, error } = await supabase.from('teams').insert({
@@ -106,6 +115,7 @@ export const dbService = {
       return data as Team;
     }
   },
+
   matches: {
     create: async (tournamentId: string, team1: Team, team2: Team, scheduledAt: string) => {
       const { data, error } = await supabase.from('matches').insert({
@@ -124,15 +134,16 @@ export const dbService = {
       await supabase.from('matches').update({ score1, score2 }).eq('id', id);
     },
     complete: async (match: Match) => {
+      // Use logic to update team standings
       const winnerId = match.score1 > match.score2 ? match.team1_id : match.team2_id;
       const loserId = match.score1 > match.score2 ? match.team2_id : match.team1_id;
       
-      const { error } = await supabase.rpc('complete_match', {
-        m_id: match.id,
-        winner_id: winnerId,
-        loser_id: loserId
-      });
-      if (error) throw error;
+      // Update winner
+      await supabase.rpc('increment_team_stats', { team_id: winnerId, is_win: true });
+      // Update loser
+      await supabase.rpc('increment_team_stats', { team_id: loserId, is_win: false });
+      // Close match
+      await supabase.from('matches').update({ status: 'completed', completed_at: new Date().toISOString() }).eq('id', match.id);
     }
   }
 };

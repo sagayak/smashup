@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { dbService } from '../services/supabase';
-import { Trophy, Lock, Mail, AlertTriangle } from 'lucide-react';
+import { Trophy, Lock, Mail, ShieldCheck, AlertTriangle } from 'lucide-react';
 
 const LoginPage: React.FC = () => {
   const [email, setEmail] = useState('');
@@ -21,6 +21,7 @@ const LoginPage: React.FC = () => {
     try {
       const profile = await dbService.auth.signIn(email, password);
 
+      // SuperAdmin Check
       if (profile.role === 'superadmin' && !showPin) {
         setShowPin(true);
         setLoading(false);
@@ -33,7 +34,7 @@ const LoginPage: React.FC = () => {
 
       navigate('/');
     } catch (err: any) {
-      setError(err.message || "Authentication failed. Check your email and password.");
+      setError(err.message || "Authentication failed. Check your credentials.");
     } finally {
       setLoading(false);
     }
@@ -42,15 +43,10 @@ const LoginPage: React.FC = () => {
   const handleGoogleLogin = async () => {
     try {
       setLoading(true);
-      setError(null);
       await dbService.auth.signInWithGoogle();
+      // Redirect happens automatically
     } catch (err: any) {
-      const msg = err.message || "";
-      if (msg.includes("provider is not enabled")) {
-        setError("CRITICAL: Google Provider not enabled in Supabase Dashboard.");
-      } else {
-        setError(msg || "Google login failed.");
-      }
+      setError(err.message || "Google Login failed.");
       setLoading(false);
     }
   };
@@ -72,7 +68,7 @@ const LoginPage: React.FC = () => {
           {error && (
             <div className="mb-6 p-5 bg-red-50 border-2 border-red-200 rounded-[2rem] flex flex-col gap-2">
               <div className="flex items-center gap-3">
-                <AlertTriangle className="w-5 h-5 text-red-500 flex-shrink-0" />
+                <AlertTriangle className="w-5 h-5 text-red-500" />
                 <p className="text-[11px] font-bold text-red-700 leading-tight">{error}</p>
               </div>
             </div>
@@ -94,7 +90,7 @@ const LoginPage: React.FC = () => {
 
           <form onSubmit={handleLogin} className="space-y-4">
             <div>
-              <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2 ml-1">Email Address</label>
+              <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2 ml-1">Real Email Address</label>
               <div className="relative">
                 <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-300" />
                 <input
@@ -103,7 +99,7 @@ const LoginPage: React.FC = () => {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   className="w-full pl-12 pr-4 py-4 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-4 focus:ring-green-500/10 outline-none font-bold"
-                  placeholder="name@email.com"
+                  placeholder="pro@shuttleup.com"
                 />
               </div>
             </div>
