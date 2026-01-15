@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { supabase, mapUsernameToEmail } from '../services/supabase';
-import { Trophy, User, Lock, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { Trophy, User, Lock, AlertCircle, CheckCircle2, WifiOff } from 'lucide-react';
 import { UserRole } from '../types';
 
 const RegisterPage: React.FC = () => {
@@ -43,12 +43,12 @@ const RegisterPage: React.FC = () => {
 
       if (authError) throw authError;
 
-      if (data.user) {
+      if (data && data.user) {
         alert("Success! Your profile is ready for court.");
         navigate('/login');
       }
     } catch (err: any) {
-      setError(err.message || "Registration failed.");
+      setError(err.message || "Registration failed. Check cluster logs.");
     } finally {
       setLoading(false);
     }
@@ -80,11 +80,14 @@ const RegisterPage: React.FC = () => {
           </div>
 
           {error && (
-            <div className="mb-8 p-6 bg-red-50 border-2 border-red-100 rounded-[2rem] flex items-start gap-4 animate-in slide-in-from-top-2">
-              <AlertCircle className="w-6 h-6 text-red-500 flex-shrink-0 mt-1" />
+            <div className="mb-8 p-6 bg-red-50 border-2 border-red-200 rounded-[2rem] flex items-start gap-4 animate-in slide-in-from-top-2">
+              <div className="bg-red-500 p-2 rounded-xl">
+                 <WifiOff className="w-5 h-5 text-white" />
+              </div>
               <div className="text-sm text-red-700 leading-relaxed">
-                <p className="font-black mb-1 uppercase tracking-wider text-xs italic">System Fault</p>
-                <p className="font-medium">{error}</p>
+                <p className="font-black mb-1 uppercase tracking-wider text-xs italic">Backend Connectivity Fault</p>
+                <p className="font-medium text-xs">{error}</p>
+                <p className="mt-2 text-[10px] opacity-60 font-bold uppercase italic">Ensure SQL schema from database.txt is deployed.</p>
               </div>
             </div>
           )}
