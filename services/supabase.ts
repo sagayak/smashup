@@ -11,10 +11,6 @@ export const isSupabaseConfigured = true;
 export const dbService = {
   auth: {
     signUp: async (email: string, username: string, fullName: string, role: string, password?: string) => {
-      // Validate email format on client side to prevent Supabase 400 errors
-      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (!emailRegex.test(email)) throw new Error("Invalid email address format.");
-
       const { data, error } = await supabase.auth.signUp({
         email,
         password: password || "shuttleup123",
@@ -41,22 +37,24 @@ export const dbService = {
         }
         throw error;
       }
-      
+
+      // Explicit check for profile existence
       const { data: profile, error: profileError } = await supabase
         .from('profiles')
         .select('*')
         .eq('id', data.user.id)
         .single();
         
-      if (profileError) throw new Error("Profile node not yet synchronized. Please try logging in again in a few seconds.");
+      if (profileError || !profile) {
+        throw new Error("PROFILE_SYNC_PENDING: Your account is ready, but the database profile is still syncing. Please wait 5 seconds and login again.");
+      }
       return profile as Profile;
     },
     signInWithGoogle: async () => {
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
-          // Fix: Ensure redirect URI matches exactly what you configure in Google Cloud
-          redirectTo: window.location.origin + window.location.pathname
+          redirectTo: window.location.origin
         }
       });
       if (error) throw error;

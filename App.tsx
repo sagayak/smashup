@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { HashRouter, Routes, Route, Navigate, Link, useNavigate } from 'react-router-dom';
-import { Trophy, Shield, LogOut, LayoutDashboard, Menu, X, Zap, User as UserIcon, Database } from 'lucide-react';
+import { Trophy, Shield, LogOut, LayoutDashboard, Menu, X, Zap, User as UserIcon, Database, AlertCircle } from 'lucide-react';
 import { supabase, dbService } from './services/supabase';
 import { Profile } from './types';
 
@@ -19,6 +19,7 @@ const AppContent: React.FC = () => {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [syncError, setSyncError] = useState(false);
 
   useEffect(() => {
     const initAuth = async () => {
@@ -30,7 +31,7 @@ const AppContent: React.FC = () => {
       }
     };
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (session) {
         await fetchProfile(session.user.id);
       } else {
@@ -44,15 +45,21 @@ const AppContent: React.FC = () => {
   }, []);
 
   const fetchProfile = async (userId: string) => {
-    const { data } = await supabase.from('profiles').select('*').eq('id', userId).single();
+    setLoading(true);
+    const { data, error } = await supabase.from('profiles').select('*').eq('id', userId).single();
+    
     if (data) {
       setProfile(data as Profile);
-      // Realtime profile updates (e.g., when credits change)
+      setSyncError(false);
+      // Realtime profile updates
       supabase.channel(`profile-${userId}`)
         .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'profiles', filter: `id=eq.${userId}` }, (payload) => {
           setProfile(payload.new as Profile);
         })
         .subscribe();
+    } else if (error) {
+      console.error("Profile Fetch Error:", error);
+      setSyncError(true);
     }
     setLoading(false);
   };
@@ -63,7 +70,31 @@ const AppContent: React.FC = () => {
         <div className="text-center">
           <Zap className="w-16 h-16 mx-auto mb-4 animate-bounce text-yellow-300" />
           <h1 className="text-3xl font-black italic uppercase tracking-tighter">ShuttleUp</h1>
-          <p className="mt-2 text-green-200 font-black italic uppercase tracking-widest text-xs">Syncing with Postgres Arena...</p>
+          <p className="mt-2 text-green-200 font-black italic uppercase tracking-widest text-xs">Accessing Database Node...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (syncError && !profile) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-900 p-6">
+        <div className="max-w-md w-full bg-white rounded-[3rem] p-12 text-center shadow-2xl border-t-8 border-red-500">
+           <AlertCircle className="w-16 h-16 text-red-500 mx-auto mb-6" />
+           <h2 className="text-3xl font-black italic uppercase tracking-tighter text-gray-900 mb-4">Database Sync Gap</h2>
+           <p className="text-gray-500 font-medium mb-8">Your account exists in Auth, but your profile wasn't found in the Database table. This usually means the SQL Trigger hasn't been run.</p>
+           <button 
+             onClick={() => window.location.reload()}
+             className="w-full bg-gray-900 text-white py-4 rounded-2xl font-black uppercase italic tracking-tighter hover:bg-black transition-all"
+           >
+             Retry Sync
+           </button>
+           <button 
+             onClick={() => dbService.auth.signOut()}
+             className="w-full mt-4 text-gray-400 font-bold uppercase text-[10px] tracking-widest hover:text-red-500"
+           >
+             Sign Out & Try Again
+           </button>
         </div>
       </div>
     );
@@ -89,7 +120,6 @@ const AppContent: React.FC = () => {
 
   return (
     <div className="flex min-h-screen bg-gray-50">
-      {/* Mobile Sidebar Toggle */}
       <button 
         className="lg:hidden fixed bottom-6 right-6 z-50 bg-green-600 text-white p-4 rounded-full shadow-lg"
         onClick={() => setIsSidebarOpen(!isSidebarOpen)}
@@ -97,7 +127,6 @@ const AppContent: React.FC = () => {
         {isSidebarOpen ? <X /> : <Menu />}
       </button>
 
-      {/* Sidebar */}
       <aside className={`fixed inset-y-0 left-0 z-40 w-64 bg-white border-r border-gray-200 transition-transform lg:translate-x-0 lg:static ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
         <div className="flex flex-col h-full">
           <div className="p-6 border-b border-gray-100 flex items-center gap-3">
@@ -133,7 +162,6 @@ const AppContent: React.FC = () => {
         </div>
       </aside>
 
-      {/* Main Content */}
       <main className="flex-1 flex flex-col min-w-0 overflow-x-hidden">
         <header className="sticky top-0 z-30 h-16 bg-white/80 backdrop-blur-md border-b border-gray-200 flex items-center justify-between px-6">
           <div className="flex items-center gap-2 px-3 py-1 bg-green-50 text-green-600 rounded-full border border-green-100 shadow-sm">
