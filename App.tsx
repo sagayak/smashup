@@ -1,8 +1,8 @@
 
 import React, { useState, useEffect } from 'react';
 import { HashRouter, Routes, Route, Navigate, Link, useNavigate } from 'react-router-dom';
-import { Trophy, Shield, LogOut, LayoutDashboard, Menu, X, Globe, Zap, User as UserIcon, Database, AlertTriangle } from 'lucide-react';
-import { supabase, isSupabaseConfigured, dbService } from './services/supabase';
+import { Trophy, Shield, LogOut, LayoutDashboard, Menu, X, Zap, User as UserIcon, Database } from 'lucide-react';
+import { supabase, dbService } from './services/supabase';
 import { Profile } from './types';
 
 // Pages
@@ -15,44 +15,14 @@ import LiveScoringPage from './pages/LiveScoringPage';
 import SuperAdminPage from './pages/SuperAdminPage';
 import ProfilePage from './pages/ProfilePage';
 
-const MissingConfigView: React.FC = () => (
-  <div className="min-h-screen bg-gray-900 flex items-center justify-center p-6">
-    <div className="max-w-md w-full bg-white rounded-[3rem] p-10 shadow-2xl border-t-8 border-yellow-500">
-      <div className="flex flex-col items-center text-center">
-        <div className="bg-yellow-50 p-4 rounded-full mb-6">
-          <AlertTriangle className="w-12 h-12 text-yellow-600" />
-        </div>
-        <h1 className="text-3xl font-black italic uppercase tracking-tighter text-gray-900 mb-4">Setup Required</h1>
-        <p className="text-gray-500 font-medium mb-8">ShuttleUp needs Supabase keys to connect to the arena.</p>
-        <div className="w-full space-y-4 text-left">
-          <div className="p-4 bg-gray-50 rounded-2xl border border-gray-100">
-            <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Step 1</p>
-            <p className="text-sm font-bold text-gray-700">Add <code className="text-green-600 bg-green-50 px-1">NEXT_PUBLIC_SUPABASE_URL</code></p>
-          </div>
-          <div className="p-4 bg-gray-50 rounded-2xl border border-gray-100">
-            <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Step 2</p>
-            <p className="text-sm font-bold text-gray-700">Add <code className="text-green-600 bg-green-50 px-1">NEXT_PUBLIC_SUPABASE_ANON_KEY</code></p>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-);
-
 const AppContent: React.FC = () => {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const navigate = useNavigate();
 
   useEffect(() => {
-    if (!isSupabaseConfigured) {
-      setLoading(false);
-      return;
-    }
-
     const initAuth = async () => {
-      const { data: { session } } = await supabase!.auth.getSession();
+      const { data: { session } } = await supabase.auth.getSession();
       if (session) {
         await fetchProfile(session.user.id);
       } else {
@@ -60,7 +30,7 @@ const AppContent: React.FC = () => {
       }
     };
 
-    const { data: { subscription } } = supabase!.auth.onAuthStateChange(async (_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
       if (session) {
         await fetchProfile(session.user.id);
       } else {
@@ -74,10 +44,10 @@ const AppContent: React.FC = () => {
   }, []);
 
   const fetchProfile = async (userId: string) => {
-    if (!supabase) return;
     const { data } = await supabase.from('profiles').select('*').eq('id', userId).single();
     if (data) {
       setProfile(data as Profile);
+      // Realtime profile updates (e.g., when credits change)
       supabase.channel(`profile-${userId}`)
         .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'profiles', filter: `id=eq.${userId}` }, (payload) => {
           setProfile(payload.new as Profile);
@@ -86,8 +56,6 @@ const AppContent: React.FC = () => {
     }
     setLoading(false);
   };
-
-  if (!isSupabaseConfigured) return <MissingConfigView />;
 
   if (loading) {
     return (
@@ -121,10 +89,15 @@ const AppContent: React.FC = () => {
 
   return (
     <div className="flex min-h-screen bg-gray-50">
-      <button className="lg:hidden fixed bottom-6 right-6 z-50 bg-green-600 text-white p-4 rounded-full shadow-lg" onClick={() => setIsSidebarOpen(!isSidebarOpen)}>
+      {/* Mobile Sidebar Toggle */}
+      <button 
+        className="lg:hidden fixed bottom-6 right-6 z-50 bg-green-600 text-white p-4 rounded-full shadow-lg"
+        onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+      >
         {isSidebarOpen ? <X /> : <Menu />}
       </button>
 
+      {/* Sidebar */}
       <aside className={`fixed inset-y-0 left-0 z-40 w-64 bg-white border-r border-gray-200 transition-transform lg:translate-x-0 lg:static ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
         <div className="flex flex-col h-full">
           <div className="p-6 border-b border-gray-100 flex items-center gap-3">
@@ -133,7 +106,12 @@ const AppContent: React.FC = () => {
           </div>
           <nav className="flex-1 p-4 space-y-2">
             {navLinks.map((link) => (
-              <Link key={link.to} to={link.to} onClick={() => setIsSidebarOpen(false)} className="flex items-center gap-3 px-4 py-3 rounded-xl text-gray-600 hover:bg-green-50 hover:text-green-600 transition-colors group">
+              <Link 
+                key={link.to} 
+                to={link.to} 
+                onClick={() => setIsSidebarOpen(false)}
+                className="flex items-center gap-3 px-4 py-3 rounded-xl text-gray-600 hover:bg-green-50 hover:text-green-600 transition-colors group"
+              >
                 <link.icon className="w-5 h-5 group-hover:scale-110 transition-transform" />
                 <span className="font-bold text-sm tracking-tight uppercase italic">{link.label}</span>
               </Link>
@@ -144,31 +122,35 @@ const AppContent: React.FC = () => {
               <span className="text-[10px] font-black text-green-100 uppercase tracking-widest">Global Credits</span>
               <div className="text-3xl font-black text-white italic tracking-tighter">{profile.credits}</div>
             </div>
-            <button onClick={() => dbService.auth.signOut()} className="flex items-center gap-3 w-full px-4 py-3 text-red-600 hover:bg-red-50 rounded-xl transition-colors">
+            <button 
+              onClick={() => dbService.auth.signOut()} 
+              className="flex items-center gap-3 w-full px-4 py-3 text-red-600 hover:bg-red-50 rounded-xl transition-colors font-bold uppercase italic text-sm"
+            >
               <LogOut className="w-5 h-5" />
-              <span className="font-bold text-sm uppercase italic">Exit Arena</span>
+              Exit Arena
             </button>
           </div>
         </div>
       </aside>
 
-      <main className="flex-1 flex flex-col min-w-0">
+      {/* Main Content */}
+      <main className="flex-1 flex flex-col min-w-0 overflow-x-hidden">
         <header className="sticky top-0 z-30 h-16 bg-white/80 backdrop-blur-md border-b border-gray-200 flex items-center justify-between px-6">
           <div className="flex items-center gap-2 px-3 py-1 bg-green-50 text-green-600 rounded-full border border-green-100 shadow-sm">
             <Database className="w-3 h-3" />
             <span className="text-[10px] font-black uppercase tracking-widest">Postgres Live</span>
           </div>
           <div className="flex items-center gap-4">
-             <div className="hidden sm:flex flex-col items-end">
+             <div className="hidden sm:flex flex-col items-end leading-none">
                 <span className="text-sm font-black text-gray-900 tracking-tighter italic uppercase">{profile.full_name}</span>
-                <span className="text-[9px] text-green-600 font-bold uppercase tracking-widest">{profile.role}</span>
+                <span className="text-[9px] text-green-600 font-bold uppercase tracking-widest mt-1">{profile.role}</span>
              </div>
              <div className="w-10 h-10 rounded-2xl bg-gray-900 flex items-center justify-center text-white font-black italic border-2 border-green-500 shadow-md">
                 {profile.username?.charAt(0).toUpperCase() || 'U'}
              </div>
           </div>
         </header>
-        <div className="p-6">
+        <div className="p-6 overflow-y-auto">
           <Routes>
             <Route path="/" element={<DashboardPage profile={profile} />} />
             <Route path="/tournaments" element={<TournamentsPage profile={profile} />} />

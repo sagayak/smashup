@@ -8,7 +8,12 @@ const supabaseAnonKey = "sb_publishable_t3kSHlUw6PyrywqBgZlRUA_w7DFBIPY";
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 export const isSupabaseConfigured = true;
 
-const mapUsernameToEmail = (username: string) => `${username.toLowerCase().trim()}@shuttleup.internal`;
+/** 
+ * CRITICAL FIX: 
+ * Using .com instead of .internal because Supabase Auth 
+ * requires a standard TLD to pass email validation.
+ */
+const mapUsernameToEmail = (username: string) => `${username.toLowerCase().trim()}@shuttleup.com`;
 
 export const dbService = {
   auth: {
@@ -17,27 +22,46 @@ export const dbService = {
       const { data, error } = await supabase.auth.signUp({
         email,
         password: password || "shuttleup123",
-        options: { data: { username: username.toLowerCase(), full_name: fullName, role } }
+        options: { 
+          data: { 
+            username: username.toLowerCase(), 
+            full_name: fullName, 
+            role 
+          } 
+        }
       });
+      
       if (error) throw error;
+      
+      // Secondary profile creation for our internal credits/role system
       if (data.user) {
-        await supabase.from('profiles').insert({
+        const { error: profileError } = await supabase.from('profiles').insert({
           id: data.user.id,
           username: username.toLowerCase(),
           full_name: fullName,
           role,
           credits: 500
         });
+        if (profileError) console.error("Profile sync error:", profileError);
       }
       return data;
     },
     signIn: async (username: string, password?: string) => {
+      const email = mapUsernameToEmail(username);
       const { data, error } = await supabase.auth.signInWithPassword({
-        email: mapUsernameToEmail(username),
+        email,
         password: password || "shuttleup123"
       });
+      
       if (error) throw error;
-      const { data: profile } = await supabase.from('profiles').select('*').eq('id', data.user.id).single();
+      
+      const { data: profile, error: profileError } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', data.user.id)
+        .single();
+        
+      if (profileError) throw new Error("Profile node not found in cluster.");
       return profile as Profile;
     },
     signOut: () => supabase.auth.signOut()
@@ -84,11 +108,6 @@ export const dbService = {
       }).select().single();
       if (error) throw error;
       return data as Team;
-    },
-    addMember: async (teamId: string, tournamentId: string, user: { id: string, full_name: string, username: string }) => {
-      // In this schema we track membership via profile role or can create a membership table.
-      // For simplicity, we'll increment member count.
-      await supabase.rpc('increment_member_count', { t_id: teamId });
     }
   },
   matches: {
