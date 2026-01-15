@@ -8,12 +8,9 @@ const supabaseAnonKey = "sb_publishable_t3kSHlUw6PyrywqBgZlRUA_w7DFBIPY";
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 export const isSupabaseConfigured = true;
 
-const mapUsernameToEmail = (username: string) => `${username.toLowerCase().trim()}@shuttleup.com`;
-
 export const dbService = {
   auth: {
-    signUp: async (username: string, fullName: string, role: string, password?: string) => {
-      const email = mapUsernameToEmail(username);
+    signUp: async (email: string, username: string, fullName: string, role: string, password?: string) => {
       const { data, error } = await supabase.auth.signUp({
         email,
         password: password || "shuttleup123",
@@ -28,8 +25,7 @@ export const dbService = {
       if (error) throw error;
       return data;
     },
-    signIn: async (username: string, password?: string) => {
-      const email = mapUsernameToEmail(username);
+    signIn: async (email: string, password?: string) => {
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password: password || "shuttleup123"
@@ -48,15 +44,14 @@ export const dbService = {
         .eq('id', data.user.id)
         .single();
         
-      if (profileError) throw new Error("Profile entry not yet synced. Try again in 3 seconds.");
+      if (profileError) throw new Error("Profile entry not yet synced. Your account is created, please try logging in again.");
       return profile as Profile;
     },
     signInWithGoogle: async () => {
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
-          // Use the current origin to ensure it works in both dev and prod
-          redirectTo: `${window.location.origin}${window.location.pathname}`.replace(/\/$/, '')
+          redirectTo: window.location.origin
         }
       });
       if (error) throw error;
