@@ -10,7 +10,6 @@ export const isSupabaseConfigured = true;
 
 export const dbService = {
   auth: {
-    // Signup with Real Email + Metadata for the Trigger
     signUp: async (email: string, username: string, fullName: string, role: string, password?: string) => {
       const { data, error } = await supabase.auth.signUp({
         email,
@@ -27,7 +26,6 @@ export const dbService = {
       return data;
     },
 
-    // Signin with Real Email
     signIn: async (email: string, password?: string) => {
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
@@ -36,20 +34,20 @@ export const dbService = {
       
       if (error) throw error;
 
-      // Fetch the public profile associated with this UUID
+      // Check if profile exists
       const { data: profile, error: profileError } = await supabase
         .from('profiles')
         .select('*')
         .eq('id', data.user.id)
-        .single();
+        .maybeSingle();
         
-      if (profileError || !profile) {
-        throw new Error("Profile synchronization pending. Please refresh in a moment.");
+      if (profileError) throw profileError;
+      if (!profile) {
+        throw new Error("DATABASE_SYNC_DELAY: Your account is ready, but your profile is still syncing. Please wait 3 seconds and refresh.");
       }
       return profile as Profile;
     },
 
-    // Standard Google OAuth
     signInWithGoogle: async () => {
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
@@ -65,7 +63,13 @@ export const dbService = {
       return data;
     },
 
-    signOut: () => supabase.auth.signOut()
+    signOut: async () => {
+      const { error } = await supabase.auth.signOut();
+      if (error) console.error("Sign Out Error:", error);
+      // Force clear state locally
+      window.location.hash = "/login";
+      window.location.reload();
+    }
   },
 
   profiles: {
@@ -96,7 +100,6 @@ export const dbService = {
       }).select().single();
       
       if (error) throw error;
-      // Atomic deduction
       await dbService.profiles.updateCredits(organizerId, -200, `Hosted Tournament: ${data.name}`, 'deduct');
       return tournament as Tournament;
     }
@@ -134,16 +137,15 @@ export const dbService = {
       await supabase.from('matches').update({ score1, score2 }).eq('id', id);
     },
     complete: async (match: Match) => {
-      // Use logic to update team standings
       const winnerId = match.score1 > match.score2 ? match.team1_id : match.team2_id;
       const loserId = match.score1 > match.score2 ? match.team2_id : match.team1_id;
       
-      // Update winner
-      await supabase.rpc('increment_team_stats', { team_id: winnerId, is_win: true });
-      // Update loser
-      await supabase.rpc('increment_team_stats', { team_id: loserId, is_win: false });
-      // Close match
-      await supabase.from('matches').update({ status: 'completed', completed_at: new Date().toISOString() }).eq('id', match.id);
+      const { error } = await supabase.rpc('complete_match', {
+        m_id: match.id,
+        winner_id: winnerId,
+        loser_id: loserId
+      });
+      if (error) throw error;
     }
   }
 };
