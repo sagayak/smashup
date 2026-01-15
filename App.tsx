@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { HashRouter, Routes, Route, Navigate, Link, useNavigate } from 'react-router-dom';
-import { Trophy, Users, Shield, LogOut, LayoutDashboard, CreditCard, PlayCircle, Menu, X, PlusCircle, TrendingUp, Settings, AlertTriangle, Database, ExternalLink, Wifi, WifiOff, Globe } from 'lucide-react';
+import { Trophy, Users, Shield, LogOut, LayoutDashboard, CreditCard, PlayCircle, Menu, X, PlusCircle, TrendingUp, Settings, AlertTriangle, Database, ExternalLink, Wifi, WifiOff, Globe, Zap } from 'lucide-react';
 import { supabase, COCKROACH_CONFIG } from './services/supabase';
 import { Profile } from './types';
 
@@ -21,10 +21,11 @@ const AppContent: React.FC = () => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const navigate = useNavigate();
 
+  const isLocalMode = localStorage.getItem('shuttleup_force_local') === 'true';
+
   useEffect(() => {
     fetchSession();
 
-    // Listen for cross-tab credit updates
     const handleSync = (e: MessageEvent) => {
       if (e.data.event === 'CREDIT_UPDATE') {
         const payload = e.data.payload;
@@ -48,7 +49,7 @@ const AppContent: React.FC = () => {
 
   const fetchSession = async () => {
     try {
-      const { data } = await supabase.auth.getSession();
+      const { data } = await (supabase as any).auth.getSession();
       if (data?.session) {
         setProfile(data.session.user);
       }
@@ -60,9 +61,13 @@ const AppContent: React.FC = () => {
   };
 
   const handleLogout = async () => {
-    await supabase.auth.signOut();
+    await (supabase as any).auth.signOut();
     setProfile(null);
     navigate('/login');
+  };
+
+  const resetMode = () => {
+    (supabase as any).setLocalMode(false);
   };
 
   if (loading) {
@@ -100,7 +105,6 @@ const AppContent: React.FC = () => {
 
   return (
     <div className="flex min-h-screen bg-gray-50">
-      {/* Sidebar Mobile Toggle */}
       <button 
         className="lg:hidden fixed bottom-6 right-6 z-50 bg-green-600 text-white p-4 rounded-full shadow-lg"
         onClick={() => setIsSidebarOpen(!isSidebarOpen)}
@@ -108,7 +112,6 @@ const AppContent: React.FC = () => {
         {isSidebarOpen ? <X /> : <Menu />}
       </button>
 
-      {/* Sidebar */}
       <aside className={`
         fixed inset-y-0 left-0 z-40 w-64 bg-white border-r border-gray-200 transition-transform lg:translate-x-0 lg:static
         ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}
@@ -155,24 +158,24 @@ const AppContent: React.FC = () => {
         </div>
       </aside>
 
-      {/* Main Content */}
       <main className="flex-1 flex flex-col min-w-0">
         <header className="sticky top-0 z-30 h-16 bg-white/80 backdrop-blur-md border-b border-gray-200 flex items-center justify-between px-6">
           <div className="flex items-center gap-4">
-             {COCKROACH_CONFIG.ENABLED ? (
-               <div className="flex items-center gap-2 px-3 py-1 bg-green-50 text-green-600 rounded-full border border-green-100">
-                  {COCKROACH_CONFIG.USE_PROXY ? <Globe className="w-3 h-3" /> : <Wifi className="w-3 h-3" />}
-                  <span className="text-[10px] font-black uppercase tracking-widest">
-                    {COCKROACH_CONFIG.USE_PROXY ? 'Cloud Bridge' : `Node: ${COCKROACH_CONFIG.CLUSTER_NAME || 'Active'}`}
-                  </span>
+             {!isLocalMode ? (
+               <div className="flex items-center gap-2 px-3 py-1 bg-green-50 text-green-600 rounded-full border border-green-100 shadow-sm">
+                  <Globe className="w-3 h-3" />
+                  <span className="text-[10px] font-black uppercase tracking-widest">Cloud Bridge Active</span>
                </div>
              ) : (
-               <div className="flex items-center gap-2 px-3 py-1 bg-yellow-50 text-yellow-600 rounded-full border border-yellow-100 animate-pulse">
-                  <WifiOff className="w-3 h-3" />
-                  <span className="text-[10px] font-black uppercase tracking-widest">Demo Mode (Local)</span>
+               <div className="flex items-center gap-2 px-3 py-1 bg-gray-900 text-white rounded-full border border-gray-800 shadow-sm group">
+                  <WifiOff className="w-3 h-3 text-yellow-400" />
+                  <span className="text-[10px] font-black uppercase tracking-widest">Local Demo Mode</span>
+                  <button onClick={resetMode} className="ml-2 bg-white/10 p-0.5 rounded-md hover:bg-white/20 transition-colors">
+                     <Zap className="w-2.5 h-2.5 text-green-400 fill-current" />
+                  </button>
                </div>
              )}
-             <h2 className="hidden sm:block text-sm font-black italic uppercase tracking-tighter text-gray-400 tracking-widest">v1.2.0-STABLE</h2>
+             <h2 className="hidden sm:block text-sm font-black italic uppercase tracking-tighter text-gray-300 tracking-widest">v1.2.0-STABLE</h2>
           </div>
           <div className="flex items-center gap-4">
              <div className="hidden sm:flex flex-col items-end">
