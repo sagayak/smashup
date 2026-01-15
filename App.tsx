@@ -1,8 +1,8 @@
 
 import React, { useState, useEffect } from 'react';
 import { HashRouter, Routes, Route, Navigate, Link, useNavigate } from 'react-router-dom';
-import { Trophy, Users, Shield, LogOut, LayoutDashboard, CreditCard, PlayCircle, Menu, X, PlusCircle, TrendingUp, Settings, AlertTriangle, Database, ExternalLink, Wifi, WifiOff, Globe, Zap } from 'lucide-react';
-import { supabase, COCKROACH_CONFIG } from './services/supabase';
+import { Trophy, Shield, LogOut, LayoutDashboard, CreditCard, Menu, X, Database, Globe } from 'lucide-react';
+import { supabase } from './services/supabase';
 import { Profile } from './types';
 
 // Pages
@@ -20,8 +20,6 @@ const AppContent: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const navigate = useNavigate();
-
-  const isLocalMode = localStorage.getItem('shuttleup_force_local') === 'true';
 
   useEffect(() => {
     fetchSession();
@@ -66,10 +64,6 @@ const AppContent: React.FC = () => {
     navigate('/login');
   };
 
-  const resetMode = () => {
-    (supabase as any).setLocalMode(false);
-  };
-
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-court text-white">
@@ -96,7 +90,7 @@ const AppContent: React.FC = () => {
     { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
     { to: '/tournaments', icon: Trophy, label: 'Tournaments' },
     { to: '/credits', icon: CreditCard, label: 'Credits' },
-    { to: '/profile', icon: Settings, label: 'Profile' },
+    { to: '/profile', icon: Trophy, label: 'Profile' },
   ];
 
   if (profile.role === 'superadmin') {
@@ -161,20 +155,10 @@ const AppContent: React.FC = () => {
       <main className="flex-1 flex flex-col min-w-0">
         <header className="sticky top-0 z-30 h-16 bg-white/80 backdrop-blur-md border-b border-gray-200 flex items-center justify-between px-6">
           <div className="flex items-center gap-4">
-             {!isLocalMode ? (
-               <div className="flex items-center gap-2 px-3 py-1 bg-green-50 text-green-600 rounded-full border border-green-100 shadow-sm">
-                  <Globe className="w-3 h-3" />
-                  <span className="text-[10px] font-black uppercase tracking-widest">Cloud Bridge Active</span>
-               </div>
-             ) : (
-               <div className="flex items-center gap-2 px-3 py-1 bg-gray-900 text-white rounded-full border border-gray-800 shadow-sm group">
-                  <WifiOff className="w-3 h-3 text-yellow-400" />
-                  <span className="text-[10px] font-black uppercase tracking-widest">Local Demo Mode</span>
-                  <button onClick={resetMode} className="ml-2 bg-white/10 p-0.5 rounded-md hover:bg-white/20 transition-colors">
-                     <Zap className="w-2.5 h-2.5 text-green-400 fill-current" />
-                  </button>
-               </div>
-             )}
+             <div className="flex items-center gap-2 px-3 py-1 bg-green-50 text-green-600 rounded-full border border-green-100 shadow-sm">
+                <Globe className="w-3 h-3" />
+                <span className="text-[10px] font-black uppercase tracking-widest">Cloud Bridge Active</span>
+             </div>
              <h2 className="hidden sm:block text-sm font-black italic uppercase tracking-tighter text-gray-300 tracking-widest">v1.2.0-STABLE</h2>
           </div>
           <div className="flex items-center gap-4">

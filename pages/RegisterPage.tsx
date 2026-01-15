@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { supabase, mapUsernameToEmail } from '../services/supabase';
-import { Trophy, User, Lock, AlertCircle, CheckCircle2, WifiOff, FileCode, Server, Database, Play } from 'lucide-react';
+import { Trophy, User, Lock, CheckCircle2, WifiOff, Database } from 'lucide-react';
 import { UserRole } from '../types';
 
 const RegisterPage: React.FC = () => {
@@ -44,18 +44,14 @@ const RegisterPage: React.FC = () => {
       if (authError) throw authError;
 
       if (data && data.user) {
-        alert("Success! Your profile is ready for court.");
+        alert("Success! Your profile is registered on the global cluster.");
         navigate('/login');
       }
     } catch (err: any) {
-      setError(err.message || "Registration failed. Check cluster logs.");
+      setError(err.message || "Registration failed. The database bridge is blocked.");
     } finally {
       setLoading(false);
     }
-  };
-
-  const enableLocalMode = () => {
-    (supabase as any).setLocalMode(true);
   };
 
   return (
@@ -68,7 +64,7 @@ const RegisterPage: React.FC = () => {
           <h2 className="text-5xl font-black italic uppercase tracking-tighter mb-4 leading-none">The Court<br/>Is Ready.</h2>
           <p className="text-green-100 text-lg mb-8 opacity-90 font-medium">ShuttleUp: Your ultimate badminton tournament partner.</p>
           <div className="space-y-4">
-            {['Zero-Setup Account', 'Instant Scoring Sync', 'Global Rankings'].map(f => (
+            {['Direct Cloud Storage', 'Instant Scoring Sync', 'Global Rankings'].map(f => (
               <div key={f} className="flex items-center gap-3">
                 <CheckCircle2 className="w-5 h-5 text-green-300" />
                 <span className="font-black italic uppercase tracking-tighter text-sm">{f}</span>
@@ -80,32 +76,18 @@ const RegisterPage: React.FC = () => {
         <div className="p-12 overflow-y-auto max-h-[90vh]">
           <div className="mb-10">
             <h1 className="text-4xl font-black text-gray-900 tracking-tight italic uppercase">Create Profile</h1>
-            <p className="text-gray-500 mt-1 font-medium text-sm">No email verification required.</p>
+            <p className="text-gray-500 mt-1 font-medium text-sm">Synchronizing with CockroachDB Cluster.</p>
           </div>
 
           {error && (
-            <div className="mb-8 p-6 bg-red-50 border-2 border-red-200 rounded-[2rem] flex flex-col gap-4 animate-in slide-in-from-top-2 shadow-sm">
+            <div className="mb-8 p-6 bg-red-50 border-2 border-red-200 rounded-[2rem] flex flex-col gap-2 animate-in slide-in-from-top-2 shadow-sm">
               <div className="flex items-center gap-4">
                 <div className="bg-red-500 p-2 rounded-xl">
                   <WifiOff className="w-5 h-5 text-white" />
                 </div>
                 <div className="text-sm text-red-700 leading-relaxed flex-1">
-                  <p className="font-black mb-1 uppercase tracking-wider text-xs italic">Connectivity Blocked</p>
+                  <p className="font-black mb-1 uppercase tracking-wider text-xs italic">Sync Error</p>
                   <p className="font-bold text-[11px] leading-tight">{error}</p>
-                </div>
-              </div>
-              
-              <div className="bg-white/50 p-4 rounded-2xl border border-red-100 space-y-4">
-                <div className="space-y-2">
-                   <p className="text-[10px] font-black uppercase text-gray-400">Can't reach the database? Try this:</p>
-                   <button 
-                     onClick={enableLocalMode}
-                     className="w-full bg-gray-900 text-white py-3 rounded-xl font-black italic uppercase tracking-tighter text-sm flex items-center justify-center gap-2 hover:bg-black transition-all"
-                   >
-                     <Play className="w-3 h-3 text-green-400 fill-current" />
-                     Start in Local Demo Mode
-                   </button>
-                   <p className="text-[8px] text-gray-400 uppercase font-bold text-center italic">Uses browser storage instead of CockroachDB Cloud</p>
                 </div>
               </div>
             </div>
@@ -173,7 +155,7 @@ const RegisterPage: React.FC = () => {
               disabled={loading}
               className="w-full bg-gray-900 hover:bg-black text-white font-black italic uppercase tracking-tighter text-2xl py-6 rounded-[2rem] shadow-2xl transition-all active:scale-95 disabled:opacity-50 mt-6"
             >
-              {loading ? "Initializing..." : "Register Now"}
+              {loading ? "Initializing..." : "Register Profile"}
             </button>
           </form>
 

@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { supabase, mapUsernameToEmail } from '../services/supabase';
-import { Trophy, Lock, User, AlertCircle, ShieldCheck, Database } from 'lucide-react';
+import { Trophy, Lock, User, AlertCircle, ShieldCheck, Database, WifiOff } from 'lucide-react';
 
 const LoginPage: React.FC = () => {
   const [username, setUsername] = useState('');
@@ -19,7 +19,6 @@ const LoginPage: React.FC = () => {
     setError(null);
 
     try {
-      // Step 1: Pre-check user role for Super PIN
       const { data: user } = await supabase.from('profiles').select().eq('username', username.toLowerCase()).single();
 
       if (user?.role === 'superadmin' && !showPin) {
@@ -32,7 +31,6 @@ const LoginPage: React.FC = () => {
         throw new Error("ACCESS DENIED: Invalid Super PIN.");
       }
 
-      // Step 2: CockroachDB Auth Call
       const { data, error: authError } = await supabase.auth.signInWithPassword({
         email: mapUsernameToEmail(username),
         password,
@@ -44,7 +42,7 @@ const LoginPage: React.FC = () => {
         window.location.reload(); 
       }
     } catch (err: any) {
-      setError(err.message || "Authentication failed. Check your cluster connection.");
+      setError(err.message || "Authentication failed. The Arena is currently unreachable.");
     } finally {
       setLoading(false);
     }
@@ -52,7 +50,6 @@ const LoginPage: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-gray-900 flex items-center justify-center p-4 relative overflow-hidden">
-      {/* Background Decor */}
       <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-green-600/10 blur-[120px] rounded-full -mr-48 -mt-48" />
       <div className="absolute bottom-0 left-0 w-[500px] h-[500px] bg-blue-600/10 blur-[120px] rounded-full -ml-48 -mb-48" />
 
@@ -64,14 +61,21 @@ const LoginPage: React.FC = () => {
             </div>
             <h1 className="text-4xl font-black text-gray-900 italic uppercase tracking-tighter">Enter Arena</h1>
             <p className="text-gray-400 mt-2 font-medium flex items-center gap-2">
-              <Database className="w-4 h-4" /> CockroachDB Secured
+              <Database className="w-4 h-4" /> CockroachDB Global Sync
             </p>
           </div>
 
           {error && (
-            <div className="mb-6 p-5 bg-red-50 border-l-4 border-red-500 text-red-700 flex items-start gap-3 rounded-r-2xl animate-in shake duration-300">
-              <AlertCircle className="w-5 h-5 mt-0.5 flex-shrink-0" />
-              <p className="text-xs font-black uppercase tracking-tight italic leading-relaxed">{error}</p>
+            <div className="mb-8 p-6 bg-red-50 border-2 border-red-200 rounded-[2.5rem] flex flex-col gap-2 animate-in shake duration-300">
+              <div className="flex items-center gap-4">
+                <div className="bg-red-500 p-2 rounded-xl">
+                  <WifiOff className="w-5 h-5 text-white" />
+                </div>
+                <div className="text-[10px] text-red-700 leading-relaxed flex-1">
+                  <p className="font-black mb-1 uppercase tracking-wider italic">Sync Blocked</p>
+                  <p className="font-bold leading-tight">{error}</p>
+                </div>
+              </div>
             </div>
           )}
 
@@ -129,7 +133,7 @@ const LoginPage: React.FC = () => {
               disabled={loading}
               className="w-full bg-gray-900 hover:bg-black text-white font-black italic uppercase tracking-tighter text-2xl py-6 rounded-[2rem] shadow-2xl transition-all active:scale-95 disabled:opacity-50 mt-4"
             >
-              {loading ? "Syncing..." : "Sign In"}
+              {loading ? "Establishing Link..." : "Sign In"}
             </button>
           </form>
 

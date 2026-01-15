@@ -1,7 +1,7 @@
 
 /**
  * ShuttleUp Database Service
- * Hybrid Engine: CockroachDB Data API + LocalStorage Fallback
+ * Strictly Cloud-Driven: CockroachDB Data API via Resilient Proxy Rotation
  */
 
 import { Profile, Tournament, Team, Match, CreditLog, UserRole } from '../types';
@@ -9,11 +9,12 @@ import { Profile, Tournament, Team, Match, CreditLog, UserRole } from '../types'
 // --- COCKROACHDB CLOUD CONFIGURATION ---
 export const COCKROACH_CONFIG = {
   ENABLED: true, 
-  USE_PROXY: true,
-  // Primary CORS Proxies (will rotate if one fails)
+  // Verified list of public proxies. Order matters for preflight success.
   PROXIES: [
-    'https://api.allorigins.win/raw?url=',
-    'https://corsproxy.io/?'
+    'https://api.allorigins.win/raw?url=', // Most stable for Auth headers
+    'https://api.codetabs.com/v1/proxy?quest=', // High performance
+    'https://corsproxy.io/?', // Backup
+    'https://thingproxy.freeboard.io/fetch/' // Last resort
   ],
   BASE_URL: 'https://api.cockroachlabs.cloud/v1/clusters/981e97c4-344d-4f2c-a9e9-d726f27f6b83/sql',
   API_KEY: 'CCDB1_2saEIW8Qkw8WCo09DvbO9c_zhu4T1zHTImuNmpDpsFabVBE6fpGvWH2HCxQb4LW',
@@ -28,38 +29,20 @@ const esc = (str: any) => {
 
 class CockroachService {
   private sessionKey = 'shuttleup_session';
-  private localDbKey = 'shuttleup_local_db';
-  private useLocalFallback = localStorage.getItem('shuttleup_force_local') === 'true';
-
-  // --- LOCAL ENGINE (Mimics SQL for Offline/CORS-Blocked usage) ---
-  private getLocalData(table: string): any[] {
-    const db = JSON.parse(localStorage.getItem(this.localDbKey) || '{}');
-    return db[table] || [];
-  }
-
-  private saveLocalData(table: string, data: any[]) {
-    const db = JSON.parse(localStorage.getItem(this.localDbKey) || '{}');
-    db[table] = data;
-    localStorage.setItem(this.localDbKey, JSON.stringify(db));
-  }
-
-  public setLocalMode(enabled: boolean) {
-    this.useLocalFallback = enabled;
-    localStorage.setItem('shuttleup_force_local', enabled.toString());
-    window.location.reload();
-  }
 
   private async execute(sql: string): Promise<{ data: any; error: any }> {
-    if (this.useLocalFallback) {
-        return { data: null, error: { message: "LOCAL_MODE: Cloud bypass active." } };
-    }
+    let lastError = "";
 
-    // Try primary proxy first, then fallback
     for (const proxyBase of COCKROACH_CONFIG.PROXIES) {
         const targetUrl = proxyBase + encodeURIComponent(COCKROACH_CONFIG.BASE_URL);
+        
         try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 8000); 
+
             const response = await fetch(targetUrl, {
                 method: 'POST',
+                mode: 'cors',
                 headers: {
                     'Authorization': `Bearer ${COCKROACH_CONFIG.API_KEY}`,
                     'Content-Type': 'application/json'
@@ -67,22 +50,23 @@ class CockroachService {
                 body: JSON.stringify({ 
                     database: COCKROACH_CONFIG.DATABASE, 
                     statement: sql 
-                })
+                }),
+                signal: controller.signal
             });
+
+            clearTimeout(timeoutId);
 
             if (!response.ok) {
                 const result = await response.json().catch(() => ({}));
-                const msg = result.message || result.error || `Error ${response.status}`;
-                if (msg.toLowerCase().includes("does not exist")) {
-                    return { data: null, error: { message: "SCHEMA_MISSING: Run database.txt in Cockroach Console." } };
-                }
-                continue; // Try next proxy
+                lastError = result.message || result.error || `Error ${response.status}`;
+                continue; 
             }
 
             const result = await response.json();
             return { data: result.rows || [], error: null };
-        } catch (e) {
-            console.warn(`Proxy ${proxyBase} failed, trying next...`);
+        } catch (e: any) {
+            lastError = e.name === 'AbortError' ? 'Proxy timed out' : e.message;
+            console.warn(`Connection via [${proxyBase}] failed:`, lastError);
             continue;
         }
     }
@@ -90,7 +74,7 @@ class CockroachService {
     return { 
         data: null, 
         error: { 
-            message: "CONNECTION_BLOCKED: Browser/Network is blocking CockroachDB. Switch to 'Local Demo Mode' to continue testing features." 
+            message: `CLOUD_SYNC_ERROR: The Arena is unreachable. (Diagnostic: ${lastError}). Please disable any Ad-Blockers or VPNs that might be interfering with our database bridge.` 
         } 
     };
   }
@@ -100,18 +84,9 @@ class CockroachService {
       const { username, full_name, role } = options.data;
       const usernameLower = username.toLowerCase().trim();
       
-      if (this.useLocalFallback) {
-        const users = this.getLocalData('profiles');
-        if (users.find(u => u.username === usernameLower)) return { error: { message: "Username taken locally." } };
-        const newUser = { id: crypto.randomUUID(), username: usernameLower, full_name, password_hash: password, role, credits: 500, created_at: new Date().toISOString() };
-        users.push(newUser);
-        this.saveLocalData('profiles', users);
-        return { data: { user: newUser }, error: null };
-      }
-
       const { data: existing, error: checkError } = await this.execute(`SELECT id FROM profiles WHERE username = '${esc(usernameLower)}' LIMIT 1;`);
       if (checkError) return { error: checkError };
-      if (existing && existing.length > 0) return { error: { message: "Username taken." } };
+      if (existing && existing.length > 0) return { error: { message: "Username already exists in the Arena." } };
 
       const id = crypto.randomUUID();
       const createdAt = new Date().toISOString();
@@ -122,18 +97,10 @@ class CockroachService {
 
     signInWithPassword: async ({ email, password }: { email: string, password?: string }) => {
       const username = email.split('@')[0].toLowerCase();
-      
-      if (this.useLocalFallback) {
-        const user = this.getLocalData('profiles').find(u => u.username === username && u.password_hash === password);
-        if (!user) return { error: { message: "Invalid local credentials." } };
-        localStorage.setItem(this.sessionKey, JSON.stringify(user));
-        return { data: { user }, error: null };
-      }
-
       const sql = `SELECT * FROM profiles WHERE username = '${esc(username)}' AND password_hash = '${esc(password)}' LIMIT 1;`;
       const { data, error } = await this.execute(sql);
       if (error) return { error };
-      if (!data || data.length === 0) return { error: { message: "Invalid credentials." } };
+      if (!data || data.length === 0) return { error: { message: "Invalid credentials. Please check your username and password." } };
       localStorage.setItem(this.sessionKey, JSON.stringify(data[0]));
       return { data: { user: data[0] }, error: null };
     },
@@ -151,24 +118,15 @@ class CockroachService {
       select: (columns: string = '*') => ({
         eq: (col: string, val: any) => ({
           single: async () => {
-            if (service.useLocalFallback) {
-                const row = service.getLocalData(table).find(r => r[col] == val);
-                return { data: row || null, error: row ? null : { message: 'Not found' } };
-            }
             const { data, error } = await service.execute(`SELECT ${columns} FROM ${table} WHERE ${col} = '${esc(val)}' LIMIT 1;`);
             return { data: data?.[0] || null, error };
           },
           then: async (resolve: any) => {
-            if (service.useLocalFallback) {
-                const rows = service.getLocalData(table).filter(r => r[col] == val);
-                return resolve({ data: rows, error: null });
-            }
             const result = await service.execute(`SELECT ${columns} FROM ${table} WHERE ${col} = '${esc(val)}';`);
             resolve(result);
           }
         }),
         then: async (resolve: any) => {
-          if (service.useLocalFallback) return resolve({ data: service.getLocalData(table), error: null });
           const result = await service.execute(`SELECT ${columns} FROM ${table};`);
           resolve(result);
         }
@@ -176,13 +134,6 @@ class CockroachService {
       insert: (record: any) => ({
         select: () => ({
           single: async () => {
-            if (service.useLocalFallback) {
-                const data = service.getLocalData(table);
-                const newRec = { ...record, id: crypto.randomUUID(), created_at: new Date().toISOString() };
-                data.push(newRec);
-                service.saveLocalData(table, data);
-                return { data: newRec, error: null };
-            }
             const keys = Object.keys(record).join(', ');
             const vals = Object.values(record).map(v => typeof v === 'string' ? `'${esc(v)}'` : v).join(', ');
             const { data, error } = await service.execute(`INSERT INTO ${table} (${keys}) VALUES (${vals}) RETURNING *;`);
@@ -193,11 +144,6 @@ class CockroachService {
       delete: () => ({
         eq: (col: string, val: any) => ({
             then: async (resolve: any) => {
-                if (service.useLocalFallback) {
-                    const data = service.getLocalData(table).filter(r => r[col] != val);
-                    service.saveLocalData(table, data);
-                    return resolve({ data: true, error: null });
-                }
                 const result = await service.execute(`DELETE FROM ${table} WHERE ${col} = '${esc(val)}';`);
                 resolve(result);
             }
@@ -207,35 +153,33 @@ class CockroachService {
   }
 
   rpc = async (name: string, params: any) => {
-    if (this.useLocalFallback) {
-        if (name === 'update_user_credits') {
-            const users = this.getLocalData('profiles');
-            const idx = users.findIndex(u => u.id === params.target_user_id);
-            if (idx !== -1) {
-                users[idx].credits += params.amount_change;
-                this.saveLocalData('profiles', users);
-                return { data: users[idx], error: null };
-            }
-        }
-        return { data: null, error: { message: "RPC not simulated locally." } };
-    }
-    
-    // Cloud RPC Logic... (existing)
     if (name === 'get_tournament_details_advanced') {
         const tId = params.tournament_id;
-        const [tRes, pRes, teamsRes, matchRes, profRes, tmRes] = await Promise.all([
+        const [tRes, pRes, teamsRes, matchRes] = await Promise.all([
           this.execute(`SELECT * FROM tournaments WHERE id = '${esc(tId)}' LIMIT 1;`),
           this.execute(`SELECT * FROM tournament_participants WHERE tournament_id = '${esc(tId)}';`),
           this.execute(`SELECT * FROM teams WHERE tournament_id = '${esc(tId)}';`),
-          this.execute(`SELECT * FROM matches WHERE tournament_id = '${esc(tId)}';`),
-          this.execute(`SELECT id, username, full_name FROM profiles;`),
-          this.execute(`SELECT tm.*, p.username, p.full_name FROM team_members tm JOIN profiles p ON tm.user_id = p.id;`)
+          this.execute(`SELECT * FROM matches WHERE tournament_id = '${esc(tId)}';`)
         ]);
         const tournament = tRes.data?.[0];
-        if (!tournament) return { data: null, error: { message: "Not found." } };
+        if (!tournament) return { data: null, error: { message: "Tournament node not found." } };
         return { data: { tournament, participants: pRes.data, teams: teamsRes.data, matches: matchRes.data }, error: null };
     }
-    return { data: null, error: { message: "Cloud Error" } };
+    
+    if (name === 'update_user_credits') {
+      const { target_user_id, amount_change, log_description, log_action } = params;
+      const sql = `UPDATE profiles SET credits = credits + ${amount_change} WHERE id = '${esc(target_user_id)}' RETURNING *;`;
+      const { data, error } = await this.execute(sql);
+      
+      if (!error && data && data.length > 0) {
+        const logSql = `INSERT INTO credit_logs (id, user_id, amount, action_type, description, created_at) VALUES ('${crypto.randomUUID()}', '${esc(target_user_id)}', ${amount_change}, '${esc(log_action)}', '${esc(log_description)}', '${new Date().toISOString()}');`;
+        await this.execute(logSql);
+        return { data: data[0], error: null };
+      }
+      return { data: null, error: error || { message: "Credit transaction failed." } };
+    }
+
+    return { data: null, error: { message: "Cloud Operation Error" } };
   };
 
   channel() { return { on: () => ({ subscribe: () => ({}) }), subscribe: () => ({}) }; }
