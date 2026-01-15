@@ -1,8 +1,8 @@
 
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { dbService } from '../services/firebase';
-import { Trophy, User, Lock, CheckCircle2, WifiOff, Cloud } from 'lucide-react';
+import { dbService } from '../services/supabase';
+import { Trophy, User, Lock, CheckCircle2, WifiOff, Database } from 'lucide-react';
 import { UserRole } from '../types';
 
 const RegisterPage: React.FC = () => {
@@ -28,10 +28,10 @@ const RegisterPage: React.FC = () => {
         formData.role,
         formData.password
       );
-      alert("Success! Your profile is registered on the global Firestore cluster.");
+      alert("Success! Your profile is synchronized with the Postgres node.");
       navigate('/login');
     } catch (err: any) {
-      setError(err.message || "Registration failed. The cloud node is blocked.");
+      setError(err.message || "Registration failed. Database node rejected request.");
     } finally {
       setLoading(false);
     }
@@ -45,9 +45,9 @@ const RegisterPage: React.FC = () => {
             <Trophy className="w-64 h-64 -mr-16 -mt-16" />
           </div>
           <h2 className="text-5xl font-black italic uppercase tracking-tighter mb-4 leading-none">The Court<br/>Is Ready.</h2>
-          <p className="text-green-100 text-lg mb-8 opacity-90 font-medium">ShuttleUp: Powered by Cloud Firestore.</p>
+          <p className="text-green-100 text-lg mb-8 opacity-90 font-medium">ShuttleUp: SQL Realtime Backend.</p>
           <div className="space-y-4">
-            {['Global Data Sync', 'NoSQL Performance', 'Instant Updates'].map(f => (
+            {['No Email Verification', 'Username Identity', 'Realtime Sync'].map(f => (
               <div key={f} className="flex items-center gap-3">
                 <CheckCircle2 className="w-5 h-5 text-green-300" />
                 <span className="font-black italic uppercase tracking-tighter text-sm">{f}</span>
@@ -59,7 +59,7 @@ const RegisterPage: React.FC = () => {
         <div className="p-12 overflow-y-auto max-h-[90vh]">
           <div className="mb-10">
             <h1 className="text-4xl font-black text-gray-900 tracking-tight italic uppercase">Create Profile</h1>
-            <p className="text-gray-500 mt-1 font-medium text-sm">Synchronizing with Firebase Cluster.</p>
+            <p className="text-gray-500 mt-1 font-medium text-sm">Direct connection to Supabase node.</p>
           </div>
 
           {error && (
@@ -138,7 +138,7 @@ const RegisterPage: React.FC = () => {
               disabled={loading}
               className="w-full bg-gray-900 hover:bg-black text-white font-black italic uppercase tracking-tighter text-2xl py-6 rounded-[2rem] shadow-2xl transition-all active:scale-95 disabled:opacity-50 mt-6"
             >
-              {loading ? "Initializing..." : "Register Profile"}
+              {loading ? "Allocating Node..." : "Register Profile"}
             </button>
           </form>
 
