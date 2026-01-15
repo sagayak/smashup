@@ -11,6 +11,10 @@ export const isSupabaseConfigured = true;
 export const dbService = {
   auth: {
     signUp: async (email: string, username: string, fullName: string, role: string, password?: string) => {
+      // Validate email format on client side to prevent Supabase 400 errors
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(email)) throw new Error("Invalid email address format.");
+
       const { data, error } = await supabase.auth.signUp({
         email,
         password: password || "shuttleup123",
@@ -44,14 +48,15 @@ export const dbService = {
         .eq('id', data.user.id)
         .single();
         
-      if (profileError) throw new Error("Profile entry not yet synced. Your account is created, please try logging in again.");
+      if (profileError) throw new Error("Profile node not yet synchronized. Please try logging in again in a few seconds.");
       return profile as Profile;
     },
     signInWithGoogle: async () => {
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
-          redirectTo: window.location.origin
+          // Fix: Ensure redirect URI matches exactly what you configure in Google Cloud
+          redirectTo: window.location.origin + window.location.pathname
         }
       });
       if (error) throw error;

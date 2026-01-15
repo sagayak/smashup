@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { dbService } from '../services/supabase';
-import { Trophy, Lock, Mail, ShieldCheck, AlertTriangle } from 'lucide-react';
+import { Trophy, Lock, Mail, AlertTriangle } from 'lucide-react';
 
 const LoginPage: React.FC = () => {
   const [email, setEmail] = useState('');
@@ -33,7 +33,7 @@ const LoginPage: React.FC = () => {
 
       navigate('/');
     } catch (err: any) {
-      setError(err.message || "Authentication failed.");
+      setError(err.message || "Authentication failed. Check your email and password.");
     } finally {
       setLoading(false);
     }
@@ -42,9 +42,15 @@ const LoginPage: React.FC = () => {
   const handleGoogleLogin = async () => {
     try {
       setLoading(true);
+      setError(null);
       await dbService.auth.signInWithGoogle();
     } catch (err: any) {
-      setError(err.message || "Google login failed.");
+      const msg = err.message || "";
+      if (msg.includes("provider is not enabled")) {
+        setError("CRITICAL: Google Provider not enabled in Supabase Dashboard.");
+      } else {
+        setError(msg || "Google login failed.");
+      }
       setLoading(false);
     }
   };
@@ -66,7 +72,7 @@ const LoginPage: React.FC = () => {
           {error && (
             <div className="mb-6 p-5 bg-red-50 border-2 border-red-200 rounded-[2rem] flex flex-col gap-2">
               <div className="flex items-center gap-3">
-                <AlertTriangle className="w-5 h-5 text-red-500" />
+                <AlertTriangle className="w-5 h-5 text-red-500 flex-shrink-0" />
                 <p className="text-[11px] font-bold text-red-700 leading-tight">{error}</p>
               </div>
             </div>
