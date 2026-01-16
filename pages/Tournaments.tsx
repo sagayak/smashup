@@ -27,43 +27,17 @@ const Tournaments: React.FC<{ user: User }> = ({ user }) => {
     ]);
     
     setUsers(allUsers);
-    // Filter visibility: Public OR Participant OR Organizer OR SuperAdmin
-    const visible = allTourneys.filter(t => 
-      t.isPublic || 
-      t.participants.includes(user.username) || 
-      t.organizerId === user.id || 
-      user.role === UserRole.SUPERADMIN
-    );
-    setTournaments(visible);
+    // User requested: Anybody can see all tournaments in the list
+    setTournaments(allTourneys.sort((a, b) => new Date(b.startDate).getTime() - new Date(a.startDate).getTime()));
   }
 
   const handleSearch = async () => {
     if (!searchId) return;
     const t = await store.searchTournamentById(searchId);
     if (t) {
-       if (t.participants.includes(user.username) || t.organizerId === user.id || user.role === UserRole.SUPERADMIN) {
-         setSelectedTournament(t);
-       } else {
-         setTournaments([t]); 
-       }
+       setSelectedTournament(t);
     } else {
       setError("Tournament ID not found");
-    }
-  };
-
-  const handleJoinAction = async (t: Tournament) => {
-    try {
-      if (t.isPublic) {
-        if (t.participants.length >= t.playerLimit) return alert("Tournament is full!");
-        await store.joinTournament(t.id, user);
-        alert("Joined successfully!");
-        await loadData();
-      } else {
-        await store.requestJoinTournament(t.id, user);
-        alert("Join request sent to organizer!");
-      }
-    } catch (err) {
-      alert("Action failed.");
     }
   };
 
@@ -167,7 +141,7 @@ const Tournaments: React.FC<{ user: User }> = ({ user }) => {
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
         {tournaments.map(t => {
-          const isMember = t.participants.includes(user.username) || t.organizerId === user.id || user.role === UserRole.SUPERADMIN;
+          const isMember = (t.participants || []).includes(user.username) || t.organizerId === user.id || user.role === UserRole.SUPERADMIN;
           const organizer = users.find(u => u.id === t.organizerId);
           return (
             <div key={t.id} className="bg-white p-8 rounded-[2rem] border border-slate-100 shadow-sm hover:shadow-2xl transition-all group overflow-hidden relative">
@@ -186,30 +160,26 @@ const Tournaments: React.FC<{ user: User }> = ({ user }) => {
               <p className="text-slate-400 font-bold text-[10px] uppercase tracking-widest mb-1">{t.venue}</p>
               <p className="text-[9px] font-black text-indigo-600 uppercase tracking-widest mb-6 italic">Organized by: {organizer?.name || 'Loading...'}</p>
               
-              {isMember ? (
-                <button 
-                  onClick={() => setSelectedTournament(t)}
-                  className="w-full bg-slate-50 text-slate-800 font-black py-3 rounded-xl uppercase tracking-widest text-[10px] group-hover:bg-indigo-600 group-hover:text-white transition-all flex items-center justify-center space-x-2"
-                >
-                  <span>Dashboard</span>
-                  <span>→</span>
-                </button>
-              ) : (
-                <button 
-                  onClick={() => handleJoinAction(t)}
-                  className="w-full bg-indigo-600 text-white font-black py-3 rounded-xl uppercase tracking-widest text-[10px] shadow-lg shadow-indigo-100 hover:scale-[1.02] active:scale-95 transition-all"
-                >
-                  {t.isPublic ? 'Join Now' : 'Request Access'}
-                </button>
-              )}
+              <button 
+                onClick={() => setSelectedTournament(t)}
+                className={`w-full font-black py-3 rounded-xl uppercase tracking-widest text-[10px] transition-all flex items-center justify-center space-x-2 ${isMember ? 'bg-slate-900 text-white shadow-lg' : 'bg-indigo-600 text-white shadow-xl shadow-indigo-100 hover:scale-[1.02]'}`}
+              >
+                <span>{isMember ? 'Dashboard' : 'Open Arena'}</span>
+                <span>→</span>
+              </button>
 
               <div className="mt-4 pt-4 border-t border-slate-50 flex justify-between items-center text-[9px] font-black text-slate-400 uppercase tracking-widest">
                  <span>{t.format} • {t.type}</span>
-                 <span>{t.participants.length}/{t.playerLimit} Slots</span>
+                 <span>{(t.participants || []).length}/{t.playerLimit} Slots</span>
               </div>
             </div>
           );
         })}
+        {tournaments.length === 0 && (
+          <div className="col-span-full py-20 text-center">
+            <p className="text-slate-400 font-black uppercase tracking-widest text-xs">No arenas found in the cloud database.</p>
+          </div>
+        )}
       </div>
     </div>
   );

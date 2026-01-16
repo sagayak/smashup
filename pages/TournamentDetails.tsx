@@ -18,6 +18,7 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
   const [joinRequests, setJoinRequests] = useState<JoinRequest[]>([]);
   const [isLocked, setIsLocked] = useState(initialTournament.isLocked);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isJoining, setIsJoining] = useState(false);
   
   const [selectedT1, setSelectedT1] = useState('');
   const [selectedT2, setSelectedT2] = useState('');
@@ -85,7 +86,27 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
     }
   };
 
+  const isMember = (tournament.participants || []).includes(user.username) || tournament.organizerId === user.id || user.role === UserRole.SUPERADMIN;
   const isOrganizer = user.id === tournament.organizerId || user.role === UserRole.SUPERADMIN;
+
+  const handleJoinAction = async () => {
+    setIsJoining(true);
+    try {
+      if (tournament.isPublic) {
+        if ((tournament.participants || []).length >= tournament.playerLimit) return alert("Tournament is full!");
+        await store.joinTournament(tournament.id, user);
+        alert("Joined successfully!");
+        await loadData();
+      } else {
+        await store.requestJoinTournament(tournament.id, user);
+        alert("Join request sent to organizer!");
+      }
+    } catch (err) {
+      alert("Action failed.");
+    } finally {
+      setIsJoining(false);
+    }
+  };
 
   const handleAddToPool = async () => {
     if (!playerSearch) return;
@@ -584,6 +605,31 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
       <p className="text-3xl font-black italic tracking-tighter">{value}</p>
     </div>
   );
+
+  // --- ACCESS GUARD ---
+  if (!isMember) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 animate-in fade-in zoom-in duration-500">
+        <div className="w-32 h-32 bg-indigo-50 rounded-[2.5rem] flex items-center justify-center mb-8 shadow-inner border border-indigo-100">
+          <svg className="w-16 h-16 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
+        </div>
+        <h3 className="text-4xl font-black text-slate-800 uppercase italic tracking-tighter mb-4">Protected Arena</h3>
+        <p className="max-w-md text-center text-slate-400 font-bold leading-relaxed mb-10 px-6">
+          Real-time match data, internal team boards, and official rankings are restricted to joined participants.
+        </p>
+        <div className="flex flex-col items-center space-y-4">
+          <button 
+            onClick={handleJoinAction} 
+            disabled={isJoining}
+            className="bg-indigo-600 text-white px-12 py-5 rounded-[2rem] font-black uppercase tracking-widest text-xs shadow-xl shadow-indigo-100 hover:scale-105 active:scale-95 transition-all disabled:opacity-50"
+          >
+            {isJoining ? 'Processing...' : (tournament.isPublic ? 'Join Arena Now' : 'Request Access to Join')}
+          </button>
+          <button onClick={onBack} className="text-slate-400 font-black uppercase tracking-widest text-[10px] hover:text-slate-600">Return to Lobby</button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-8 pb-20">
