@@ -1,81 +1,71 @@
 
-export type UserRole = 'superadmin' | 'admin' | 'player' | 'scorer';
-
-export interface Profile {
-  id: string;
-  username: string;
-  full_name: string;
-  email?: string;
-  role: UserRole;
-  credits: number;
-  created_at: string;
+export enum UserRole {
+  PLAYER = 'PLAYER',
+  ORGANIZER = 'ORGANIZER',
+  SUPERADMIN = 'SUPERADMIN'
 }
 
-export interface Tournament {
+export enum TournamentType {
+  LEAGUE = 'LEAGUE',
+  KNOCKOUT = 'KNOCKOUT'
+}
+
+export enum MatchFormat {
+  SINGLES = 'SINGLES',
+  DOUBLES = 'DOUBLES'
+}
+
+export enum MatchStatus {
+  SCHEDULED = 'SCHEDULED',
+  LIVE = 'LIVE',
+  COMPLETED = 'COMPLETED'
+}
+
+export interface User {
   id: string;
-  share_id: string;
   name: string;
-  description: string;
-  organizer_id: string;
-  status: 'draft' | 'published' | 'finished' | 'cancelled';
-  cost_to_host: number;
-  is_locked: boolean;
-  location_name?: string;
-  latitude?: number;
-  longitude?: number;
-  start_date?: string;
-  rules_handbook?: string;
-  created_at: string;
+  username: string;
+  email: string;
+  role: UserRole;
+  credits: number;
+  avatar?: string;
 }
 
 export interface Team {
   id: string;
-  tournament_id: string;
   name: string;
-  points: number;
-  wins: number;
-  losses: number;
-  member_count?: number;
+  playerIds: string[];
 }
 
-export interface TournamentParticipant {
+export interface Tournament {
   id: string;
-  tournament_id: string;
-  user_id: string;
-  status: 'pending' | 'approved' | 'rejected';
-  full_name?: string;
-  username?: string;
-}
-
-export interface TeamMember {
-  id: string;
-  team_id: string;
-  tournament_id: string;
-  user_id: string;
-  full_name: string;
-  username: string;
+  name: string;
+  venue: string;
+  startDate: string;
+  endDate: string;
+  type: TournamentType;
+  format: MatchFormat;
+  numCourts: number;
+  organizerId: string;
+  status: 'UPCOMING' | 'ONGOING' | 'FINISHED';
+  participants: string[]; // User IDs for singles, Team IDs for doubles
 }
 
 export interface Match {
   id: string;
-  tournament_id: string;
-  team1_id: string;
-  team2_id: string;
-  score1: number;
-  score2: number;
-  status: 'pending' | 'live' | 'completed';
-  scorer_pin?: string;
-  scheduled_at: string;
-  completed_at?: string;
-  team1_name?: string;
-  team2_name?: string;
+  tournamentId: string;
+  participants: string[]; // User IDs or Team IDs
+  scores: number[][]; // e.g., [[21, 19], [18, 21], [21, 15]]
+  winnerId?: string;
+  court: number;
+  startTime: string;
+  status: MatchStatus;
 }
 
 export interface CreditLog {
   id: string;
-  user_id: string;
+  userId: string;
   amount: number;
-  action_type: string;
-  description: string;
-  created_at: string;
+  reason: string;
+  timestamp: string;
 }

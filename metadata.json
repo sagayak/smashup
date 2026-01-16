@@ -1,7 +1,6 @@
+
 {
-  "name": "ShuttleUp",
-  "description": "Professional Badminton Tournament Management and Live Scoring Application with internal credit system and real-time updates.",
-  "requestFramePermissions": [
-    "geolocation"
-  ]
+  "name": "SmashTourney Pro",
+  "description": "A high-performance badminton tournament management system with real-time standings, match scheduling, and credit-based rewards.",
+  "requestFramePermissions": []
 }

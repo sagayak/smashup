@@ -1,0 +1,44 @@
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+    
+    function hasRole(role) {
+      return isSignedIn() && getUserData().role == role;
+    }
+
+    // User Profile rules
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow write: if hasRole('SUPERADMIN') || request.auth.uid == userId;
+    }
+
+    // Tournament rules
+    match /tournaments/{tournamentId} {
+      allow read: if isSignedIn();
+      allow create: if hasRole('ORGANIZER') || hasRole('SUPERADMIN');
+      allow update, delete: if hasRole('SUPERADMIN') || (hasRole('ORGANIZER') && resource.data.organizerId == request.auth.uid);
+    }
+
+    // Match rules
+    match /matches/{matchId} {
+      allow read: if isSignedIn();
+      allow create, update: if hasRole('ORGANIZER') || hasRole('SUPERADMIN');
+    }
+
+    // Credit Logs (Read-only for players, write-only for admins)
+    match /creditLogs/{logId} {
+      allow read: if isSignedIn() && (request.auth.uid == resource.data.userId || hasRole('SUPERADMIN'));
+      allow create: if hasRole('SUPERADMIN') || hasRole('ORGANIZER');
+    }
+  }
+}
