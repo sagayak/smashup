@@ -1,4 +1,3 @@
-
 export enum UserRole {
   PLAYER = 'PLAYER',
   ORGANIZER = 'ORGANIZER',
@@ -87,6 +86,7 @@ export interface Match {
   status: MatchStatus;
   umpireName?: string;
   pointsOption: number;
+  goldenPoint: number;
   bestOf: number;
 }
 

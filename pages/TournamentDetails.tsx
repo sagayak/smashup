@@ -46,6 +46,7 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
   const [matchConfig, setMatchConfig] = useState({ 
     points: 21, 
     customPoints: '',
+    goldenPoint: 30,
     bestOf: 3, 
     court: 1, 
     umpire: '',
@@ -239,6 +240,7 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
         court: matchConfig.court,
         startTime: scheduledDateTime,
         pointsOption: finalPoints,
+        goldenPoint: matchConfig.goldenPoint,
         bestOf: matchConfig.bestOf,
         umpireName: matchConfig.umpire
       });
@@ -413,10 +415,10 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
                 </div>
               </div>
 
-              {/* RESTORED: Format & Points Selection */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mt-6">
+              {/* RESTORED: Format & Points Selection + NEW Golden Point */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mt-6">
                 <div className="space-y-3">
-                  <label className="text-[10px] font-black text-indigo-200 uppercase tracking-widest ml-1">Match Format (Best of)</label>
+                  <label className="text-[10px] font-black text-indigo-200 uppercase tracking-widest ml-1">Format (Best of)</label>
                   <div className="flex space-x-2">
                     {[1, 3, 5].map(v => (
                       <button 
@@ -424,7 +426,7 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
                         onClick={() => setMatchConfig({...matchConfig, bestOf: v})}
                         className={`flex-1 py-3 rounded-xl font-black text-xs transition-all ${matchConfig.bestOf === v ? 'bg-white text-indigo-600 shadow-lg' : 'bg-indigo-500 text-indigo-200 hover:bg-indigo-400'}`}
                       >
-                        {v} {v === 1 ? 'Set' : 'Sets'}
+                        {v}
                       </button>
                     ))}
                   </div>
@@ -435,7 +437,7 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
                     {[21, 30].map(v => (
                       <button 
                         key={v}
-                        onClick={() => setMatchConfig({...matchConfig, points: v, customPoints: ''})}
+                        onClick={() => setMatchConfig({...matchConfig, points: v, customPoints: '', goldenPoint: v === 21 ? 30 : v + 5})}
                         className={`flex-1 py-3 rounded-xl font-black text-xs transition-all ${matchConfig.points === v ? 'bg-white text-indigo-600 shadow-lg' : 'bg-indigo-500 text-indigo-200 hover:bg-indigo-400'}`}
                       >
                         {v}
@@ -448,6 +450,15 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
                       onChange={e => setMatchConfig({...matchConfig, points: 0, customPoints: e.target.value})}
                     />
                   </div>
+                </div>
+                <div className="space-y-3">
+                  <label className="text-[10px] font-black text-indigo-200 uppercase tracking-widest ml-1">Golden Point Cap</label>
+                  <input 
+                    type="number"
+                    className="w-full p-3 bg-indigo-500 rounded-xl font-black text-xs outline-none text-white focus:bg-white focus:text-indigo-600 transition-all"
+                    value={matchConfig.goldenPoint}
+                    onChange={e => setMatchConfig({...matchConfig, goldenPoint: parseInt(e.target.value) || 30})}
+                  />
                 </div>
               </div>
 
@@ -867,7 +878,7 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
             <div className="flex-1 max-w-2xl mx-10">
                <div className="bg-[#121931]/80 border border-white/5 rounded-[2.5rem] py-6 flex items-center justify-center shadow-inner relative overflow-hidden group">
                   <div className="absolute inset-0 bg-white/[0.02] translate-y-full group-hover:translate-y-0 transition-transform duration-500"></div>
-                  <span className="text-[12px] font-black text-slate-400 uppercase tracking-[0.5em] italic">Target Score: {scoringMatch.pointsOption}</span>
+                  <span className="text-[12px] font-black text-slate-400 uppercase tracking-[0.5em] italic">Target Score: {scoringMatch.pointsOption} (Cap: {scoringMatch.goldenPoint})</span>
                </div>
             </div>
 
