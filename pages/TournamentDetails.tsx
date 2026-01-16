@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Tournament, Match, User, UserRole, MatchStatus, Team, TournamentPlayer, MatchScore, JoinRequest, RankingCriterion } from '../types';
 import { store } from '../services/mockStore';
@@ -24,17 +23,21 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
   const [selectedT2, setSelectedT2] = useState('');
 
   const [scoringMatch, setScoringMatch] = useState<Match | null>(null);
+  const [showScoreboard, setShowScoreboard] = useState(false);
   const [pinInput, setPinInput] = useState('');
-  const [showPinModal, setShowPinModal] = useState(false);
+  const [isPinVerified, setIsPinVerified] = useState(false);
   const [scores, setScores] = useState<MatchScore[]>([]);
+  const [isSwapped, setIsSwapped] = useState(false);
 
   const [playerSearch, setPlayerSearch] = useState('');
   const [rosterFilter, setRosterFilter] = useState('');
   const [isAddingPlayer, setIsAddingPlayer] = useState(false);
 
+  // Team Creation State
   const [newTeamName, setNewTeamName] = useState('');
-  const [selectedPoolPlayers, setSelectedPoolPlayers] = useState<TournamentPlayer[]>([]);
-  const [isBulkOpen, setIsBulkOpen] = useState(false);
+  const [selectedPoolPlayers, setSelectedPoolPlayers] = useState<string[]>([]);
+  const [isCreatingTeam, setIsCreatingTeam] = useState(false);
+  // Fix: Added missing state for bulk import functionality
   const [bulkInput, setBulkInput] = useState('');
 
   const [matchConfig, setMatchConfig] = useState({ points: 21, bestOf: 3, court: 1, umpire: '' });
@@ -104,41 +107,60 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
   };
 
   const handleCreateTeam = async () => {
-    if (!newTeamName || selectedPoolPlayers.length === 0) return;
+    if (!newTeamName || selectedPoolPlayers.length === 0) return alert("Team name and at least one player required.");
+    setIsCreatingTeam(true);
     try {
-      const playerIds = selectedPoolPlayers.filter(p => p.id).map(p => p.id!);
-      const customNames = selectedPoolPlayers.filter(p => !p.id).map(p => p.name);
+      const playerIds: string[] = [];
+      const customPlayerNames: string[] = [];
+      
+      selectedPoolPlayers.forEach(pName => {
+        const poolPlayer = tournament.playerPool.find(pp => pp.name === pName);
+        if (poolPlayer?.id) playerIds.push(poolPlayer.id);
+        else customPlayerNames.push(pName);
+      });
+
       await store.addTeam({ 
         tournamentId: tournament.id, 
         name: newTeamName, 
         playerIds, 
-        customPlayerNames: customNames 
+        customPlayerNames 
       });
       setNewTeamName('');
       setSelectedPoolPlayers([]);
       await loadData();
     } catch (err) { console.error(err); }
+    finally { setIsCreatingTeam(false); }
   };
 
   const handleBulkImport = async () => {
-    const lines = bulkInput.split('\n').filter(l => l.trim());
-    for (const line of lines) {
-      const parts = line.split(',').map(p => p.trim());
-      if (parts.length < 2) continue;
-      const teamName = parts[0];
-      const playerNames = parts.slice(1);
-      const playerIds: string[] = [];
-      const customNames: string[] = [];
-      for (const name of playerNames) {
-        const cleaned = name.replace('@', '').toLowerCase();
-        const found = allUsers.find(u => u.username.toLowerCase() === cleaned || u.name.toLowerCase() === name.toLowerCase());
-        if (found) playerIds.push(found.id);
-        else customNames.push(name);
+    if (!bulkInput) return;
+    setIsCreatingTeam(true);
+    try {
+      const lines = bulkInput.split('\n').filter(l => l.trim());
+      for (const line of lines) {
+        const parts = line.split(',').map(p => p.trim());
+        if (parts.length < 2) continue;
+        const teamName = parts[0];
+        const playerNames = parts.slice(1);
+        const playerIds: string[] = [];
+        const customNames: string[] = [];
+        for (const name of playerNames) {
+          const cleaned = name.replace('@', '').toLowerCase();
+          const poolPlayer = tournament.playerPool.find(pp => pp.username?.toLowerCase() === cleaned || pp.name.toLowerCase() === name.toLowerCase());
+          if (poolPlayer?.id) playerIds.push(poolPlayer.id);
+          else customNames.push(name);
+        }
+        await store.addTeam({ tournamentId: tournament.id, name: teamName, playerIds, customPlayerNames: customNames });
       }
-      await store.addTeam({ tournamentId: tournament.id, name: teamName, playerIds, customPlayerNames: customNames });
-    }
-    setBulkInput('');
-    setIsBulkOpen(false);
+      setBulkInput('');
+      setIsCreatingTeam(false);
+      await loadData();
+    } catch (err) { console.error(err); }
+  };
+
+  const handleDeleteTeam = async (teamId: string) => {
+    if (!window.confirm("Remove this team?")) return;
+    await store.deleteTeam(teamId);
     await loadData();
   };
 
@@ -170,16 +192,39 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
     } catch (e: any) { alert(e.message); }
   };
 
-  const handleSaveScore = async () => {
+  const handleSaveScore = async (currentScores: MatchScore[]) => {
     if (scoringMatch) {
-      if (pinInput !== tournament.scorerPin && !isOrganizer) return alert("Invalid Scorer PIN");
       try {
-        await store.updateMatchScore(scoringMatch.id, scores, scoringMatch.participants);
-        setScoringMatch(null);
-        setShowPinModal(false);
-        setPinInput('');
+        await store.updateMatchScore(scoringMatch.id, currentScores, scoringMatch.participants);
         await loadData();
       } catch (err) { console.error(err); }
+    }
+  };
+
+  const handleScoreUpdate = (team: 1 | 2, delta: number) => {
+    if (!scoringMatch) return;
+    const currentSetIndex = scores.findIndex(s => {
+      const isComplete = (s.s1 >= scoringMatch.pointsOption || s.s2 >= scoringMatch.pointsOption) && Math.abs(s.s1 - s.s2) >= 2;
+      return !isComplete;
+    });
+    
+    // If all sets are complete, just use the last set (or do nothing)
+    const idx = currentSetIndex === -1 ? scores.length - 1 : currentSetIndex;
+    
+    const newScores = [...scores];
+    if (team === 1) newScores[idx] = { ...newScores[idx], s1: Math.max(0, newScores[idx].s1 + delta) };
+    else newScores[idx] = { ...newScores[idx], s2: Math.max(0, newScores[idx].s2 + delta) };
+    
+    setScores(newScores);
+    handleSaveScore(newScores);
+  };
+
+  const verifyPin = () => {
+    if (pinInput === tournament.scorerPin || isOrganizer) {
+      setIsPinVerified(true);
+    } else {
+      alert("Invalid Scorer PIN");
+      setPinInput('');
     }
   };
 
@@ -209,11 +254,6 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
     await loadData();
   };
 
-  const handleResolveJoin = async (req: JoinRequest, approved: boolean) => {
-    await store.resolveJoinRequest(req.id, tournament.id, req.username, approved);
-    await loadData();
-  };
-
   const handleDeleteTournament = async () => {
     if (!window.confirm("CRITICAL: Permanently delete this tournament? This cannot be undone.")) return;
     setIsDeleting(true);
@@ -237,6 +277,146 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
     p.name.toLowerCase().includes(rosterFilter.toLowerCase()) || 
     p.username?.toLowerCase().includes(rosterFilter.toLowerCase())
   ) || [];
+
+  if (showScoreboard && scoringMatch) {
+    const t1 = teams.find(t => t.id === scoringMatch.participants[0]);
+    const t2 = teams.find(t => t.id === scoringMatch.participants[1]);
+    
+    const getInitials = (team?: Team) => {
+      if (!team) return "";
+      const pNames = [...(team.playerIds.map(pid => allUsers.find(u => u.id === pid)?.name || "")), ...(team.customPlayerNames || [])];
+      return pNames.map(n => n.split(' ').map(x => x[0]).join('').slice(0, 2).toUpperCase()).join(' ');
+    };
+
+    const currentSetIndex = scores.findIndex(s => {
+      const isComplete = (s.s1 >= scoringMatch.pointsOption || s.s2 >= scoringMatch.pointsOption) && Math.abs(s.s1 - s.s2) >= 2;
+      return !isComplete;
+    });
+    const activeIdx = currentSetIndex === -1 ? scores.length - 1 : currentSetIndex;
+
+    const team1UI = (
+      <div className={`flex-1 flex flex-col items-center justify-center p-12 relative overflow-hidden transition-all duration-500 rounded-[3rem] m-4 border-4 ${isSwapped ? 'order-last' : 'order-first'} bg-indigo-950/40 border-indigo-500/30 group`}>
+        <div className="absolute inset-0 bg-gradient-to-br from-indigo-600/10 to-transparent pointer-events-none"></div>
+        <div className="z-10 text-center">
+          <h3 className="text-6xl font-black text-white uppercase italic tracking-tighter mb-2">{t1?.name}</h3>
+          <p className="text-slate-400 font-black uppercase tracking-widest text-xs flex items-center justify-center space-x-2">
+            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path d="M13 6a3 3 0 11-6 0 3 3 0 016 0zM18 8a2 2 0 11-4 0 2 2 0 014 0zM14 15a4 4 0 00-8 0v3h8v-3zM6 8a2 2 0 11-4 0 2 2 0 014 0zM16 18v-3a5.972 5.972 0 00-.75-2.906A3.005 3.005 0 0119 15v3h-3zM4.75 12.094A5.973 5.973 0 004 15v3H1v-3a3 3 0 013.75-2.906z" /></svg>
+            <span>{getInitials(t1)}</span>
+          </p>
+          <div className="flex space-x-2 mt-4 justify-center">
+            {scores.map((s, idx) => (
+              <div key={idx} className={`w-10 h-2 rounded-full ${idx < activeIdx ? (s.s1 > s.s2 ? 'bg-indigo-500 shadow-[0_0_10px_rgba(99,102,241,0.5)]' : 'bg-slate-700') : (idx === activeIdx ? 'bg-indigo-400/50' : 'bg-slate-800')}`}></div>
+            ))}
+          </div>
+          <div className="relative mt-8">
+            <span className="absolute inset-0 flex items-center justify-center text-[15rem] font-black text-white/5 pointer-events-none">1</span>
+            <div className="text-[14rem] font-black text-white leading-none tabular-nums drop-shadow-2xl">
+              {scores[activeIdx]?.s1 ?? 0}
+            </div>
+          </div>
+          <div className="flex items-center space-x-8 mt-4">
+            <button onClick={() => handleScoreUpdate(1, -1)} className="w-24 h-24 rounded-full bg-slate-800/80 text-white text-4xl font-light hover:bg-slate-700 flex items-center justify-center transition-all active:scale-90 border border-white/5">—</button>
+            <button onClick={() => handleScoreUpdate(1, 1)} className="w-32 h-32 rounded-full bg-indigo-500 text-white text-5xl font-light hover:bg-indigo-400 shadow-[0_0_30px_rgba(99,102,241,0.4)] flex items-center justify-center transition-all active:scale-90">+</button>
+          </div>
+        </div>
+      </div>
+    );
+
+    const team2UI = (
+      <div className={`flex-1 flex flex-col items-center justify-center p-12 relative overflow-hidden transition-all duration-500 rounded-[3rem] m-4 border-4 bg-emerald-950/40 border-emerald-500/30 group`}>
+        <div className="absolute inset-0 bg-gradient-to-br from-emerald-600/10 to-transparent pointer-events-none"></div>
+        <div className="z-10 text-center">
+          <h3 className="text-6xl font-black text-white uppercase italic tracking-tighter mb-2">{t2?.name}</h3>
+          <p className="text-slate-400 font-black uppercase tracking-widest text-xs flex items-center justify-center space-x-2">
+            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path d="M13 6a3 3 0 11-6 0 3 3 0 016 0zM18 8a2 2 0 11-4 0 2 2 0 014 0zM14 15a4 4 0 00-8 0v3h8v-3zM6 8a2 2 0 11-4 0 2 2 0 014 0zM16 18v-3a5.972 5.972 0 00-.75-2.906A3.005 3.005 0 0119 15v3h-3zM4.75 12.094A5.973 5.973 0 004 15v3H1v-3a3 3 0 013.75-2.906z" /></svg>
+            <span>{getInitials(t2)}</span>
+          </p>
+          <div className="flex space-x-2 mt-4 justify-center">
+            {scores.map((s, idx) => (
+              <div key={idx} className={`w-10 h-2 rounded-full ${idx < activeIdx ? (s.s2 > s.s1 ? 'bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.5)]' : 'bg-slate-700') : (idx === activeIdx ? 'bg-emerald-400/50' : 'bg-slate-800')}`}></div>
+            ))}
+          </div>
+          <div className="relative mt-8">
+            <span className="absolute inset-0 flex items-center justify-center text-[15rem] font-black text-white/5 pointer-events-none">2</span>
+            <div className="text-[14rem] font-black text-white leading-none tabular-nums drop-shadow-2xl">
+              {scores[activeIdx]?.s2 ?? 0}
+            </div>
+          </div>
+          <div className="flex items-center space-x-8 mt-4">
+            <button onClick={() => handleScoreUpdate(2, -1)} className="w-24 h-24 rounded-full bg-slate-800/80 text-white text-4xl font-light hover:bg-slate-700 flex items-center justify-center transition-all active:scale-90 border border-white/5">—</button>
+            <button onClick={() => handleScoreUpdate(2, 1)} className="w-32 h-32 rounded-full bg-emerald-500 text-white text-5xl font-light hover:bg-emerald-400 shadow-[0_0_30px_rgba(16,185,129,0.4)] flex items-center justify-center transition-all active:scale-90">+</button>
+          </div>
+        </div>
+      </div>
+    );
+
+    return (
+      <div className="fixed inset-0 bg-[#070b14] z-[500] flex flex-col overflow-hidden animate-in fade-in duration-500 select-none">
+        {/* Header Controls */}
+        <div className="p-6 flex items-center justify-between z-50">
+          <div className="flex items-center space-x-4">
+            <button 
+              onClick={() => { setShowScoreboard(false); setScoringMatch(null); setIsPinVerified(false); }} 
+              className="bg-slate-800/80 hover:bg-slate-700 text-white px-6 py-3 rounded-2xl text-xs font-black uppercase tracking-widest flex items-center space-x-2 transition-all border border-white/5"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
+              <span>Exit</span>
+            </button>
+            <button className="bg-indigo-600/80 hover:bg-indigo-500 text-white px-6 py-3 rounded-2xl text-xs font-black uppercase tracking-widest flex items-center space-x-2 transition-all border border-indigo-500/20">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" /></svg>
+              <span>Lineup</span>
+            </button>
+          </div>
+
+          <div className="text-center flex-1 mx-20">
+            <p className="text-slate-500 font-black text-[10px] uppercase tracking-[0.3em] mb-3">Match Progression</p>
+            <div className="flex items-center justify-center space-x-4">
+              {scores.map((s, idx) => (
+                <div key={idx} className="flex flex-col items-center">
+                  <div className={`w-32 h-2 rounded-full overflow-hidden bg-slate-800 flex border border-white/5`}>
+                    {idx < activeIdx ? (
+                      <div className={`h-full w-full ${s.s1 > s.s2 ? 'bg-indigo-500 shadow-[0_0_10px_indigo]' : 'bg-emerald-500 shadow-[0_0_10px_emerald]'}`}></div>
+                    ) : (idx === activeIdx ? (
+                      <div className="h-full w-1/2 bg-slate-600 animate-pulse"></div>
+                    ) : null)}
+                  </div>
+                  <p className={`mt-2 text-[10px] font-black uppercase tracking-widest ${idx === activeIdx ? 'text-white' : 'text-slate-500'}`}>
+                    {idx === activeIdx ? `Set ${idx + 1}` : (idx < activeIdx ? `${s.s1}:${s.s2}` : `Set ${idx + 1}`)}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <button onClick={() => handleScoreUpdate(isSwapped ? 2 : 1, -1)} className="bg-slate-800/80 hover:bg-slate-700 text-slate-300 px-8 py-3 rounded-2xl text-xs font-black uppercase tracking-widest transition-all border border-white/5">Undo</button>
+        </div>
+
+        {/* Main Score Area */}
+        <div className="flex-grow flex p-6 relative">
+          {team1UI}
+          {team2UI}
+        </div>
+
+        {/* Bottom Bar */}
+        <div className="p-8 flex items-center justify-between z-50">
+          <button 
+            onClick={() => setIsSwapped(!isSwapped)} 
+            className="w-16 h-16 rounded-2xl bg-slate-800/80 hover:bg-slate-700 flex items-center justify-center text-slate-300 transition-all border border-white/5"
+          >
+            <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+          </button>
+          
+          <div className="flex-1 text-center">
+            <div className="bg-slate-900/50 border border-white/5 backdrop-blur-xl px-12 py-3 rounded-full inline-block">
+              <span className="text-[10px] font-black text-slate-400 uppercase tracking-[0.4em]">Target Score: {scoringMatch.pointsOption}</span>
+            </div>
+          </div>
+
+          <div className="w-16 h-16"></div> {/* Spacer for balance */}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-8 pb-20">
@@ -327,11 +507,105 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
                   <div className="flex items-center space-x-4">
                     <span className={`text-[9px] font-black uppercase tracking-widest ${m.status === MatchStatus.COMPLETED ? 'text-slate-400' : 'text-emerald-500 animate-pulse'}`}>{m.status}</span>
                     {m.status !== MatchStatus.COMPLETED && (
-                      <button onClick={() => { setScoringMatch(m); setScores(m.scores); setShowPinModal(true); }} className="bg-indigo-600 text-white px-6 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg">Open Board</button>
+                      <button onClick={() => { setScoringMatch(m); setScores(m.scores); setShowScoreboard(true); }} className="bg-indigo-600 text-white px-6 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg">Open Board</button>
                     )}
                   </div>
                </div>
              ))}
+           </div>
+        </div>
+      )}
+
+      {activeTab === 'teams' && (
+        <div className="space-y-8">
+           {isOrganizer && !isLocked && (
+             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                {/* Manual Creation */}
+                <div className="bg-white p-8 rounded-[2rem] border border-slate-100 shadow-sm space-y-6">
+                   <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest italic">Create Single Team</h4>
+                   <Input label="Team Name" value={newTeamName} onChange={setNewTeamName} placeholder="The Aces" />
+                   
+                   <div className="space-y-2">
+                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Select Players from Roster</label>
+                      <div className="max-h-40 overflow-y-auto border-2 border-slate-50 rounded-2xl p-4 grid grid-cols-2 gap-2">
+                         {tournament.playerPool.map(p => (
+                           <button 
+                             key={p.name}
+                             onClick={() => setSelectedPoolPlayers(prev => prev.includes(p.name) ? prev.filter(x => x !== p.name) : [...prev, p.name])}
+                             className={`px-3 py-2 rounded-xl text-[10px] font-bold uppercase transition-all border ${selectedPoolPlayers.includes(p.name) ? 'bg-indigo-600 border-indigo-600 text-white shadow-lg' : 'bg-white text-slate-400 border-slate-100 hover:border-indigo-100'}`}
+                           >
+                             {p.name}
+                           </button>
+                         ))}
+                      </div>
+                   </div>
+
+                   <button 
+                     onClick={handleCreateTeam} 
+                     disabled={isCreatingTeam || !newTeamName || selectedPoolPlayers.length === 0}
+                     className="w-full bg-slate-900 text-white font-black py-4 rounded-2xl uppercase tracking-widest text-[10px] shadow-xl active:scale-95 transition-all disabled:opacity-50"
+                   >
+                     {isCreatingTeam ? 'Deploying...' : 'Deploy Team'}
+                   </button>
+                </div>
+
+                {/* Bulk Import */}
+                <div className="bg-indigo-600 p-8 rounded-[2rem] text-white shadow-xl space-y-4">
+                   <h4 className="text-[10px] font-black text-indigo-200 uppercase tracking-widest italic">Bulk Team Matrix</h4>
+                   <p className="text-[10px] text-indigo-100 opacity-80 leading-relaxed font-bold">
+                     Format: <code className="bg-indigo-700 px-1 rounded">TeamName, @Username, @Username</code><br/>
+                     One team per line. If username is not in roster, it creates a custom entry.
+                   </p>
+                   <textarea 
+                     className="w-full h-40 bg-indigo-500/50 rounded-2xl p-4 text-[11px] font-bold placeholder:text-indigo-300 outline-none border border-indigo-400 focus:border-white transition-all text-white"
+                     placeholder="Aces, @user1, @user2&#10;Kings, @user3, @user4"
+                     value={bulkInput}
+                     onChange={e => setBulkInput(e.target.value)}
+                   />
+                   <button 
+                    onClick={handleBulkImport}
+                    disabled={isCreatingTeam || !bulkInput}
+                    className="w-full bg-white text-indigo-600 font-black py-4 rounded-2xl uppercase tracking-widest text-[10px] shadow-lg active:scale-95 transition-all disabled:opacity-50"
+                   >
+                     {isCreatingTeam ? 'Parsing Matrix...' : 'Import Matrix'}
+                   </button>
+                </div>
+             </div>
+           )}
+
+           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {teams.map(t => (
+                <div key={t.id} className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm relative group hover:border-indigo-100 transition-all">
+                   <h5 className="font-black text-slate-800 uppercase italic tracking-tighter text-lg mb-4">{t.name}</h5>
+                   <div className="space-y-2">
+                      {t.playerIds.map(pid => {
+                        const u = allUsers.find(x => x.id === pid);
+                        return (
+                          <div key={pid} className="flex items-center space-x-2">
+                             <div className="w-2 h-2 rounded-full bg-emerald-500"></div>
+                             <span className="text-[11px] font-black uppercase tracking-tight text-slate-600">{u?.name || 'Unknown User'}</span>
+                             <span className="text-[9px] text-slate-300 font-bold">@{u?.username}</span>
+                          </div>
+                        );
+                      })}
+                      {t.customPlayerNames?.map(name => (
+                        <div key={name} className="flex items-center space-x-2">
+                           <div className="w-2 h-2 rounded-full bg-slate-300"></div>
+                           <span className="text-[11px] font-black uppercase tracking-tight text-slate-400">{name} (Custom)</span>
+                        </div>
+                      ))}
+                   </div>
+                   {isOrganizer && !isLocked && (
+                     <button 
+                      onClick={() => handleDeleteTeam(t.id)}
+                      className="absolute top-4 right-4 text-slate-200 hover:text-rose-500 transition-colors"
+                     >
+                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                     </button>
+                   )}
+                </div>
+              ))}
+              {teams.length === 0 && <div className="col-span-full py-20 text-center bg-white rounded-[2rem] border border-dashed border-slate-200"><p className="text-slate-300 font-black uppercase tracking-widest text-xs">No teams drafted yet.</p></div>}
            </div>
         </div>
       )}
@@ -459,36 +733,6 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
               </div>
             ))}
           </div>
-        </div>
-      )}
-
-      {showPinModal && (
-        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-[300] flex items-center justify-center p-4">
-           <div className="bg-white rounded-[2.5rem] w-full max-w-lg p-10 shadow-2xl">
-              <h4 className="text-2xl font-black text-slate-800 text-center mb-8 italic uppercase tracking-tighter">Live Scoreboard</h4>
-              {!isOrganizer && (
-                <div className="mb-8">
-                  <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2 block text-center">Security PIN Required</label>
-                  <input type="password" placeholder="••••" maxLength={4} className="w-full p-6 bg-slate-50 rounded-3xl text-center text-4xl font-black tracking-[1em] outline-none focus:bg-white transition-all" value={pinInput} onChange={e => setPinInput(e.target.value)} />
-                </div>
-              )}
-              <div className="space-y-4 mb-10">
-                 {scores.map((s, i) => (
-                   <div key={i} className="flex items-center justify-between bg-slate-50 p-4 rounded-2xl border border-slate-100">
-                      <span className="text-[10px] font-black text-indigo-400 uppercase italic">Set {i+1}</span>
-                      <div className="flex items-center space-x-4">
-                         <input type="number" className="w-16 h-12 text-center font-black text-2xl bg-white rounded-xl outline-none" value={s.s1} onChange={e => { const ns = [...scores]; ns[i] = { s1: parseInt(e.target.value) || 0, s2: s.s2 }; setScores(ns); }} />
-                         <span className="font-black text-slate-300">/</span>
-                         <input type="number" className="w-16 h-12 text-center font-black text-2xl bg-white rounded-xl outline-none" value={s.s2} onChange={e => { const ns = [...scores]; ns[i] = { s1: s.s1, s2: parseInt(e.target.value) || 0 }; setScores(ns); }} />
-                      </div>
-                   </div>
-                 ))}
-              </div>
-              <div className="flex space-x-4">
-                 <button onClick={handleSaveScore} className="flex-grow bg-indigo-600 text-white font-black py-5 rounded-2xl uppercase tracking-widest text-xs shadow-xl active:scale-95 transition-all">Update Scores</button>
-                 <button onClick={() => { setShowPinModal(false); setPinInput(''); }} className="px-8 font-black text-slate-400 uppercase tracking-widest text-[10px]">Cancel</button>
-              </div>
-           </div>
         </div>
       )}
     </div>
