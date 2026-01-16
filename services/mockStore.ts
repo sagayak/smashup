@@ -13,7 +13,8 @@ import {
   limit,
   deleteDoc,
   orderBy,
-  arrayUnion
+  arrayUnion,
+  writeBatch
 } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js';
 import { 
   createUserWithEmailAndPassword, 
@@ -48,7 +49,7 @@ class DataService {
         username: userData.username.toLowerCase().trim(),
         email: email,
         id: uid,
-        credits: 0, // No initial credits for anyone
+        credits: 0, 
         role: isFirstUser ? UserRole.SUPERADMIN : userData.role
       };
       await setDoc(doc(db, "users", uid), newUser);
@@ -113,13 +114,32 @@ class DataService {
       isLocked: false,
       rankingCriteriaOrder: ['MATCHES_WON', 'SETS_WON', 'POINTS_DIFF', 'HEAD_TO_HEAD']
     });
-    // Deduct credits
     await this.adjustCredits(data.organizerId, -200, "Tournament Creation");
     return { ...data, id: docRef.id, uniqueId, isLocked: false } as Tournament;
   }
 
   async updateTournamentSettings(id: string, updates: Partial<Tournament>) {
     await updateDoc(doc(db, "tournaments", id), updates);
+  }
+
+  async deleteTournament(tournamentId: string) {
+    const batch = writeBatch(db);
+    
+    // 1. Delete main tournament doc
+    batch.delete(doc(db, "tournaments", tournamentId));
+
+    // 2. Fetch and add related items to batch
+    const [matchesSnap, teamsSnap, joinReqSnap] = await Promise.all([
+      getDocs(query(collection(db, "matches"), where("tournamentId", "==", tournamentId))),
+      getDocs(query(collection(db, "teams"), where("tournamentId", "==", tournamentId))),
+      getDocs(query(collection(db, "joinRequests"), where("tournamentId", "==", tournamentId)))
+    ]);
+
+    matchesSnap.forEach(d => batch.delete(d.ref));
+    teamsSnap.forEach(d => batch.delete(d.ref));
+    joinReqSnap.forEach(d => batch.delete(d.ref));
+
+    await batch.commit();
   }
 
   async searchTournamentById(uniqueId: string): Promise<Tournament | null> {
@@ -132,7 +152,6 @@ class DataService {
     await updateDoc(doc(db, "tournaments", tournamentId), {
       participants: arrayUnion(user.username)
     });
-    // Also auto-add to player pool as unregistered if not already there or handle pool update logic
   }
 
   async requestJoinTournament(tournamentId: string, user: User) {
@@ -242,7 +261,7 @@ class DataService {
       setsWon: 0,
       pointsScored: 0,
       pointsConceded: 0,
-      headToHead: {} as Record<string, number> // Against other team IDs
+      headToHead: {} as Record<string, number> 
     }));
 
     matches.filter(m => m.status === MatchStatus.COMPLETED).forEach(m => {

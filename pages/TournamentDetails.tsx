@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { Tournament, Match, User, UserRole, MatchStatus, Team, TournamentPlayer, MatchScore, JoinRequest, RankingCriterion } from '../types';
 import { store } from '../services/mockStore';
@@ -218,10 +219,15 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
     setIsDeleting(true);
     try {
       await store.deleteTournament(tournament.id);
+      alert("Tournament deleted successfully.");
       onBack();
-    } catch (err) {
-      console.error(err);
-      alert("Failed to delete tournament. Check permissions.");
+    } catch (err: any) {
+      console.error("Deletion error:", err);
+      if (err.code === 'permission-denied') {
+        alert("Permission Denied: You do not have authority to delete this tournament or its components.");
+      } else {
+        alert(`Failed to delete tournament: ${err.message}`);
+      }
     } finally {
       setIsDeleting(false);
     }
@@ -360,12 +366,13 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
           </div>
           <div className="p-6 bg-slate-900 rounded-3xl text-white">
              <h5 className="text-[9px] font-black uppercase tracking-widest text-slate-500 mb-4 italic">Ranking Priority (Rules)</h5>
+             <p className="text-[8px] text-slate-400 mb-4 italic uppercase tracking-widest">Organizers can adjust these rules in Settings at any time.</p>
              <div className="flex flex-wrap gap-4">
                 {(tournament.rankingCriteriaOrder || ['MATCHES_WON', 'SETS_WON', 'POINTS_DIFF', 'HEAD_TO_HEAD']).map((rule, i) => (
                    <div key={rule} className="flex items-center space-x-2">
                       <span className="text-indigo-400 font-black">{i + 1}.</span>
                       <span className="text-[10px] font-bold uppercase tracking-widest">{rule.replace(/_/g, ' ')}</span>
-                      {i < 3 && <span className="text-slate-700">→</span>}
+                      {i < (tournament.rankingCriteriaOrder?.length || 4) - 1 && <span className="text-slate-700">→</span>}
                    </div>
                 ))}
              </div>
@@ -377,7 +384,7 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
            <div className="bg-white p-8 rounded-[2rem] border border-slate-100 shadow-sm">
               <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-6">Ranking Criteria Order</h4>
-              <p className="text-[10px] text-slate-400 mb-6 italic">Define the tie-breaking priority for standings.</p>
+              <p className="text-[10px] text-indigo-500 mb-6 italic font-bold">These rules can be adjusted even after the arena is locked.</p>
               <div className="space-y-2">
                  {(tournament.rankingCriteriaOrder || ['MATCHES_WON', 'SETS_WON', 'POINTS_DIFF', 'HEAD_TO_HEAD']).map((criterion, idx) => (
                    <div key={criterion} className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100">
@@ -386,8 +393,8 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
                          <span className="text-[11px] font-black uppercase tracking-widest text-slate-700">{criterion.replace(/_/g, ' ')}</span>
                       </div>
                       <div className="flex space-x-1">
-                         <button onClick={() => moveRankingCriterion(idx, 'up')} className="p-2 hover:bg-slate-200 rounded-lg transition-colors" disabled={idx === 0}>↑</button>
-                         <button onClick={() => moveRankingCriterion(idx, 'down')} className="p-2 hover:bg-slate-200 rounded-lg transition-colors" disabled={idx === 3}>↓</button>
+                         <button onClick={() => moveRankingCriterion(idx, 'up')} className="p-2 hover:bg-slate-200 rounded-lg transition-colors text-slate-400 hover:text-indigo-600 disabled:opacity-20" disabled={idx === 0}>↑</button>
+                         <button onClick={() => moveRankingCriterion(idx, 'down')} className="p-2 hover:bg-slate-200 rounded-lg transition-colors text-slate-400 hover:text-indigo-600 disabled:opacity-20" disabled={idx === (tournament.rankingCriteriaOrder?.length || 4) - 1}>↓</button>
                       </div>
                    </div>
                  ))}
@@ -401,8 +408,8 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
                     <div>
                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-2 block">Scorer Board PIN</label>
                        <div className="flex space-x-2">
-                          <input type="password" maxLength={4} className="flex-1 p-4 bg-slate-50 rounded-2xl text-center text-2xl font-black tracking-[0.5em] outline-none" value={tempPin} onChange={e => setTempPin(e.target.value)} />
-                          <button onClick={handleUpdatePin} className="bg-slate-900 text-white px-6 rounded-2xl font-black uppercase text-[10px]">Save</button>
+                          <input type="password" placeholder="••••" maxLength={4} className="flex-1 p-4 bg-slate-50 rounded-2xl text-center text-2xl font-black tracking-[0.5em] outline-none focus:bg-white focus:border-indigo-100 border border-transparent" value={tempPin} onChange={e => setTempPin(e.target.value)} />
+                          <button onClick={handleUpdatePin} className="bg-slate-900 text-white px-6 rounded-2xl font-black uppercase text-[10px] shadow-lg active:scale-95 transition-all">Update</button>
                        </div>
                     </div>
                     <div className="flex items-center justify-between p-4 bg-indigo-50 rounded-2xl border border-indigo-100">
@@ -423,9 +430,9 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
                  <button 
                   onClick={handleDeleteTournament} 
                   disabled={isDeleting}
-                  className="w-full bg-white text-rose-600 border border-rose-200 font-black py-4 rounded-2xl uppercase tracking-widest text-[10px] disabled:opacity-50"
+                  className="w-full bg-white text-rose-600 border border-rose-200 font-black py-4 rounded-2xl uppercase tracking-widest text-[10px] shadow-sm hover:bg-rose-600 hover:text-white transition-all active:scale-95 disabled:opacity-50"
                  >
-                   {isDeleting ? 'Deleting...' : 'Delete Arena Permanently'}
+                   {isDeleting ? 'Erasing Arena...' : 'Delete Tournament Forever'}
                  </button>
               </div>
            </div>
@@ -443,6 +450,7 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
               </div>
             </div>
           )}
+          {isLocked && <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest text-center py-10 italic">Roster is Locked. No new players can be added.</p>}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             {filteredPool.map((p, i) => (
               <div key={i} className="bg-white p-5 rounded-2xl border border-slate-100 flex items-center space-x-3 shadow-sm">
@@ -461,7 +469,7 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
               {!isOrganizer && (
                 <div className="mb-8">
                   <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2 block text-center">Security PIN Required</label>
-                  <input type="password" placeholder="••••" maxLength={4} className="w-full p-6 bg-slate-50 rounded-3xl text-center text-4xl font-black tracking-[1em] outline-none" value={pinInput} onChange={e => setPinInput(e.target.value)} />
+                  <input type="password" placeholder="••••" maxLength={4} className="w-full p-6 bg-slate-50 rounded-3xl text-center text-4xl font-black tracking-[1em] outline-none focus:bg-white transition-all" value={pinInput} onChange={e => setPinInput(e.target.value)} />
                 </div>
               )}
               <div className="space-y-4 mb-10">
@@ -478,7 +486,7 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
               </div>
               <div className="flex space-x-4">
                  <button onClick={handleSaveScore} className="flex-grow bg-indigo-600 text-white font-black py-5 rounded-2xl uppercase tracking-widest text-xs shadow-xl active:scale-95 transition-all">Update Scores</button>
-                 <button onClick={() => setShowPinModal(false)} className="px-8 font-black text-slate-400 uppercase tracking-widest text-[10px]">Cancel</button>
+                 <button onClick={() => { setShowPinModal(false); setPinInput(''); }} className="px-8 font-black text-slate-400 uppercase tracking-widest text-[10px]">Cancel</button>
               </div>
            </div>
         </div>
