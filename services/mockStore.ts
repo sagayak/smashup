@@ -19,7 +19,7 @@ import {
   signOut
 } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js';
 import { db, auth } from './firebase.ts';
-import { User, Tournament, Match, UserRole, TournamentType, MatchFormat, MatchStatus, Team, CreditRequest } from '../types.ts';
+import { User, Tournament, Match, UserRole, TournamentType, MatchFormat, MatchStatus, Team, CreditRequest, TournamentPlayer } from '../types.ts';
 
 const SHADOW_DOMAIN = "@smashpro.local";
 
@@ -67,7 +67,6 @@ class DataService {
     return snapshot.empty ? null : (snapshot.docs[0].data() as User);
   }
 
-  // Implementation of requestReset to fix the error in App.tsx line 71
   async requestReset(username: string): Promise<boolean> {
     const user = await this.getUserByUsername(username);
     if (!user) return false;
@@ -107,10 +106,14 @@ class DataService {
     const userData = userDoc.data() as User;
     if (userData.credits < 200) throw new Error("Insufficient credits. Cost: 200");
     const uniqueId = await this.generateUniqueId();
-    const newT = { ...t, uniqueId, isLocked: false, scorerPin: '0000', unregisteredPlayers: [] };
+    const newT = { ...t, uniqueId, isLocked: false, scorerPin: '0000', playerPool: [] };
     const docRef = await addDoc(collection(db, "tournaments"), newT);
     await this.adjustCredits(t.organizerId, -200, `Created Tournament: ${t.name}`);
     return docRef.id;
+  }
+
+  async updateTournamentPool(id: string, pool: TournamentPlayer[]) {
+    await updateDoc(doc(db, "tournaments", id), { playerPool: pool });
   }
 
   async getTournaments(): Promise<Tournament[]> {

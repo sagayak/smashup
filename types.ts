@@ -41,6 +41,13 @@ export interface Team {
   customPlayerNames?: string[]; // For unregistered players
 }
 
+export interface TournamentPlayer {
+  id?: string; // Existing User ID
+  name: string;
+  username?: string;
+  isRegistered: boolean;
+}
+
 export interface Tournament {
   id: string;
   uniqueId: string;
@@ -58,7 +65,7 @@ export interface Tournament {
   isPublic: boolean;
   playerLimit: number;
   scorerPin: string; 
-  unregisteredPlayers?: string[]; // Global list for this tournament
+  playerPool: TournamentPlayer[]; // Tournament-specific player roster
   rankingCriteria: string[];
 }
 
