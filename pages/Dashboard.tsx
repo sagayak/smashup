@@ -6,25 +6,45 @@ import { store } from '../services/mockStore';
 const Dashboard: React.FC<{ user: User }> = ({ user }) => {
   const [tournaments, setTournaments] = useState<Tournament[]>([]);
   const [matches, setMatches] = useState<Match[]>([]);
+  const [topUsers, setTopUsers] = useState<User[]>([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    setTournaments(store.getTournaments());
-    // Get matches where the user is a participant
-    const allMatches = store.matches.filter(m => m.participants.includes(user.id));
-    setMatches(allMatches);
-  }, [user]);
+    async function loadData() {
+      setLoading(true);
+      try {
+        const [t, m, u] = await Promise.all([
+          store.getTournaments(),
+          store.getMatchesForUser(user.id),
+          store.getAllUsers()
+        ]);
+        setTournaments(t);
+        setMatches(m);
+        setTopUsers(u.sort((a, b) => b.credits - a.credits).slice(0, 5));
+      } finally {
+        setLoading(false);
+      }
+    }
+    loadData();
+  }, [user.id]);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-8 animate-in fade-in duration-700">
-      {/* Stats Overview */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <StatCard title="Win Rate" value="68%" trend="+4%" icon="🎯" />
+        <StatCard title="Win Rate" value={`${matches.length > 0 ? Math.round((matches.filter(m => m.winnerId === user.id).length / matches.length) * 100) : 0}%`} trend="Overall" icon="🎯" />
         <StatCard title="Tournaments" value={tournaments.length.toString()} trend="Active" icon="🏆" />
-        <StatCard title="Credits Earned" value={user.credits.toString()} trend="Lifetime" icon="💎" />
+        <StatCard title="Credits Earned" value={user.credits.toString()} trend="Live Balance" icon="💎" />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Recent Matches */}
         <div className="lg:col-span-2 space-y-6">
           <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden">
             <div className="p-6 border-b border-slate-50 flex justify-between items-center bg-white">
@@ -38,15 +58,13 @@ const Dashboard: React.FC<{ user: User }> = ({ user }) => {
                     <div className="flex -space-x-3">
                       {match.participants.map(pId => (
                         <div key={pId} className="w-12 h-12 rounded-full border-4 border-white bg-slate-200 flex items-center justify-center text-sm font-black text-slate-600 shadow-sm">
-                          {store.getUser(pId)?.name[0]}
+                          {pId[0].toUpperCase()}
                         </div>
                       ))}
                     </div>
                     <div>
-                      <p className="font-bold text-slate-800">
-                        {store.getUser(match.participants[0])?.name.split(' ')[0]} <span className="text-slate-300 font-light mx-1">vs</span> {store.getUser(match.participants[1])?.name.split(' ')[0]}
-                      </p>
-                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{new Date(match.startTime).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</p>
+                      <p className="font-bold text-slate-800">Match #{match.id.slice(-4)}</p>
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{new Date(match.startTime).toLocaleDateString()}</p>
                     </div>
                   </div>
                   <div className="text-right">
@@ -61,36 +79,28 @@ const Dashboard: React.FC<{ user: User }> = ({ user }) => {
               )) : (
                 <div className="p-16 text-center">
                   <div className="text-4xl mb-4">🏸</div>
-                  <p className="text-slate-400 font-medium">No match history yet. Join a tournament to start your journey!</p>
+                  <p className="text-slate-400 font-medium">No matches recorded in the database yet.</p>
                 </div>
               )}
             </div>
           </div>
         </div>
 
-        {/* Sidebar */}
         <div className="space-y-8">
-          {/* Quick Action Card */}
           <div className="bg-indigo-600 rounded-3xl p-8 text-white shadow-xl shadow-indigo-100 relative overflow-hidden group">
             <div className="relative z-10">
-              <h3 className="font-black text-2xl mb-2">Ready to Smash?</h3>
-              <p className="text-indigo-100 text-sm mb-6 leading-relaxed">Check out the upcoming tournaments and register to earn massive rewards.</p>
-              <button 
-                className="w-full bg-white text-indigo-600 font-black py-4 rounded-2xl hover:bg-indigo-50 transition-all shadow-lg transform group-hover:scale-[1.02]"
-              >
+              <h3 className="font-black text-2xl mb-2">Live Database</h3>
+              <p className="text-indigo-100 text-sm mb-6 leading-relaxed">Your performance is now tracked in real-time across the cloud.</p>
+              <button className="w-full bg-white text-indigo-600 font-black py-4 rounded-2xl hover:bg-indigo-50 transition-all shadow-lg transform group-hover:scale-[1.02]">
                 Join Tournament
               </button>
             </div>
-            {/* Decoration */}
-            <div className="absolute top-0 right-0 -mr-16 -mt-16 w-48 h-48 bg-indigo-400/30 rounded-full blur-3xl"></div>
-            <div className="absolute bottom-0 left-0 -ml-8 -mb-8 w-32 h-32 bg-indigo-800/20 rounded-full blur-2xl"></div>
           </div>
 
-          {/* Leaderboard */}
           <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-100">
             <h3 className="font-black text-slate-800 uppercase tracking-wider text-sm mb-6 px-2">Top Performers</h3>
             <div className="space-y-5">
-              {store.users.sort((a, b) => b.credits - a.credits).slice(0, 5).map((u, idx) => (
+              {topUsers.map((u, idx) => (
                 <div key={u.id} className="flex items-center justify-between p-2 rounded-2xl hover:bg-slate-50 transition-colors">
                   <div className="flex items-center space-x-4">
                     <span className={`text-xs font-black w-6 h-6 flex items-center justify-center rounded-lg ${idx === 0 ? 'bg-amber-100 text-amber-600' : 'bg-slate-100 text-slate-400'}`}>
@@ -98,10 +108,10 @@ const Dashboard: React.FC<{ user: User }> = ({ user }) => {
                     </span>
                     <div>
                       <span className="font-bold text-slate-700 block text-sm">{u.name}</span>
-                      <span className="text-[10px] text-slate-400 uppercase font-bold tracking-widest">Rank {idx + 1}</span>
+                      <span className="text-[10px] text-slate-400 uppercase font-bold tracking-widest">@{u.username}</span>
                     </div>
                   </div>
-                  <span className="text-indigo-600 font-black text-sm">{u.credits} <span className="text-[10px] uppercase opacity-50 ml-0.5">pts</span></span>
+                  <span className="text-indigo-600 font-black text-sm">{u.credits}</span>
                 </div>
               ))}
             </div>

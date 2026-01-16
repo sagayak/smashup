@@ -19,14 +19,18 @@ service cloud.firestore {
     // User Profile rules
     match /users/{userId} {
       allow read: if isSignedIn();
-      allow write: if hasRole('SUPERADMIN') || request.auth.uid == userId;
+      // Allow creation if the database is empty (bootstrap) or normal signup
+      allow create: if isSignedIn();
+      // Only admins or the owner can update profiles
+      allow update: if hasRole('SUPERADMIN') || request.auth.uid == userId;
     }
 
     // Tournament rules
     match /tournaments/{tournamentId} {
       allow read: if isSignedIn();
       allow create: if hasRole('ORGANIZER') || hasRole('SUPERADMIN');
-      allow update, delete: if hasRole('SUPERADMIN') || (hasRole('ORGANIZER') && resource.data.organizerId == request.auth.uid);
+      // Players can update to join themselves
+      allow update: if hasRole('SUPERADMIN') || (hasRole('ORGANIZER') && resource.data.organizerId == request.auth.uid) || (isSignedIn() && request.resource.data.participants.hasAll(resource.data.participants));
     }
 
     // Match rules
@@ -35,10 +39,10 @@ service cloud.firestore {
       allow create, update: if hasRole('ORGANIZER') || hasRole('SUPERADMIN');
     }
 
-    // Credit Logs (Read-only for players, write-only for admins)
+    // Credit Logs
     match /creditLogs/{logId} {
       allow read: if isSignedIn() && (request.auth.uid == resource.data.userId || hasRole('SUPERADMIN'));
-      allow create: if hasRole('SUPERADMIN') || hasRole('ORGANIZER');
+      allow create: if isSignedIn(); // Allow credit auto-award on join/win
     }
   }
 }

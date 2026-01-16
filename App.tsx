@@ -11,57 +11,148 @@ const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [activeTab, setActiveTab] = useState('dashboard');
   const [isAuth, setIsAuth] = useState(false);
+  const [authMode, setAuthMode] = useState<'login' | 'signup' | 'reset'>('login');
+  const [loading, setLoading] = useState(false);
+  
+  // Auth Form State
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [name, setName] = useState('');
+  const [role, setRole] = useState<UserRole>(UserRole.PLAYER);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
 
-  // Simple Auth simulation
-  const handleLogin = (userId: string) => {
-    const user = store.getUser(userId);
-    if (user) {
-      setCurrentUser(user);
-      setIsAuth(true);
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setLoading(true);
+    try {
+      const user = await store.login(username, password);
+      if (user) {
+        setCurrentUser(user);
+        setIsAuth(true);
+      } else {
+        setError('User profile not found.');
+      }
+    } catch (err: any) {
+      setError(err.message || 'Invalid username or password');
+    } finally {
+      setLoading(false);
     }
   };
 
-  const handleLogout = () => {
+  const handleSignup = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setLoading(true);
+    try {
+      const newUser = await store.signup({
+        username,
+        password,
+        name,
+        email: `${username}@smashpro.local`,
+        role
+      });
+      if (newUser) {
+        setAuthMode('login');
+        setSuccess('Signup successful! Please login.');
+      }
+    } catch (err: any) {
+      setError(err.message || 'Signup failed. Username might be taken.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResetRequest = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    try {
+      const result = await store.requestReset(username);
+      if (result) {
+        setSuccess('Reset request sent to admin!');
+        setAuthMode('login');
+      } else {
+        setError('Username not found');
+      }
+    } catch (err) {
+      setError('An error occurred');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    await store.logout();
     setCurrentUser(null);
     setIsAuth(false);
+    setUsername('');
+    setPassword('');
   };
 
   if (!isAuth) {
     return (
       <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
-        <div className="max-w-md w-full bg-white rounded-3xl p-8 shadow-2xl">
-          <div className="text-center mb-10">
-            <div className="w-16 h-16 bg-indigo-600 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg shadow-indigo-200">
-               <svg className="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+        <div className="max-w-md w-full bg-white rounded-[2rem] p-10 shadow-2xl animate-in zoom-in duration-300">
+          <div className="text-center mb-8">
+            <div className="w-20 h-20 bg-indigo-600 rounded-3xl flex items-center justify-center mx-auto mb-6 shadow-xl shadow-indigo-200 rotate-3">
+               <svg className="w-12 h-12 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
             </div>
-            <h1 className="text-3xl font-black text-slate-800 tracking-tight">SmashTourney Pro</h1>
-            <p className="text-slate-400 mt-2 font-medium">Select a role to preview the application</p>
+            <h1 className="text-4xl font-black text-slate-800 tracking-tighter">SmashPro</h1>
+            <p className="text-slate-400 mt-2 font-medium">Cloud Database Connected</p>
           </div>
 
-          <div className="space-y-4">
-            <LoginButton 
-              label="Login as SuperAdmin" 
-              onClick={() => handleLogin('1')} 
-              icon="👑" 
-              desc="Manage users, credits & site configuration" 
-            />
-            <LoginButton 
-              label="Login as Organizer" 
-              onClick={() => handleLogin('4')} 
-              icon="📋" 
-              desc="Create and manage badminton tournaments" 
-            />
-            <LoginButton 
-              label="Login as Player (Viktor)" 
-              onClick={() => handleLogin('2')} 
-              icon="🏸" 
-              desc="View matches, standings & earn credits" 
-            />
-          </div>
+          {error && <div className="mb-4 p-3 bg-rose-50 text-rose-500 text-sm font-bold rounded-xl text-center border border-rose-100">{error}</div>}
+          {success && <div className="mb-4 p-3 bg-emerald-50 text-emerald-600 text-sm font-bold rounded-xl text-center border border-emerald-100">{success}</div>}
 
-          <p className="text-center text-slate-300 text-xs mt-10">
-            Production system would use Firebase Authentication.
-          </p>
+          {authMode === 'login' && (
+            <form onSubmit={handleLogin} className="space-y-4">
+              <Input label="Username" value={username} onChange={setUsername} placeholder="your_username" disabled={loading} />
+              <Input label="Password" value={password} onChange={setPassword} placeholder="••••••••" type="password" disabled={loading} />
+              <button disabled={loading} type="submit" className="w-full bg-indigo-600 text-white font-black py-4 rounded-2xl hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 disabled:opacity-50">
+                {loading ? 'Authenticating...' : 'Sign In'}
+              </button>
+              <div className="flex justify-between text-xs font-bold uppercase tracking-widest pt-2">
+                <button type="button" onClick={() => setAuthMode('signup')} className="text-indigo-500 hover:text-indigo-700">Create Account</button>
+                <button type="button" onClick={() => setAuthMode('reset')} className="text-slate-400 hover:text-slate-600">Forgot Password?</button>
+              </div>
+            </form>
+          )}
+
+          {authMode === 'signup' && (
+            <form onSubmit={handleSignup} className="space-y-4">
+              <Input label="Full Name" value={name} onChange={setName} placeholder="John Doe" disabled={loading} />
+              <Input label="Username" value={username} onChange={setUsername} placeholder="johndoe123" disabled={loading} />
+              <Input label="Password" value={password} onChange={setPassword} placeholder="••••••••" type="password" disabled={loading} />
+              <div className="space-y-1">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Select Role</label>
+                <select 
+                  className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-2xl focus:border-indigo-500 outline-none font-bold"
+                  value={role}
+                  onChange={(e) => setRole(e.target.value as UserRole)}
+                  disabled={loading}
+                >
+                  <option value={UserRole.PLAYER}>Player</option>
+                  <option value={UserRole.ORGANIZER}>Organizer</option>
+                </select>
+              </div>
+              <button disabled={loading} type="submit" className="w-full bg-indigo-600 text-white font-black py-4 rounded-2xl hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 disabled:opacity-50">
+                {loading ? 'Creating Account...' : 'Sign Up'}
+              </button>
+              <button type="button" onClick={() => setAuthMode('login')} className="w-full text-xs font-black text-slate-400 uppercase tracking-widest py-2">Back to Login</button>
+            </form>
+          )}
+
+          {authMode === 'reset' && (
+            <form onSubmit={handleResetRequest} className="space-y-4">
+              <p className="text-slate-500 text-sm mb-4 text-center">Enter your username and we'll notify the developer to reset your password.</p>
+              <Input label="Username" value={username} onChange={setUsername} placeholder="your_username" disabled={loading} />
+              <button disabled={loading} type="submit" className="w-full bg-slate-800 text-white font-black py-4 rounded-2xl hover:bg-slate-900 transition-all shadow-lg">
+                {loading ? 'Sending...' : 'Request Reset'}
+              </button>
+              <button type="button" onClick={() => setAuthMode('login')} className="w-full text-xs font-black text-slate-400 uppercase tracking-widest py-2">Back to Login</button>
+            </form>
+          )}
         </div>
       </div>
     );
@@ -78,19 +169,14 @@ const App: React.FC = () => {
       {activeTab === 'tournaments' && currentUser && <Tournaments user={currentUser} />}
       {activeTab === 'admin' && currentUser && <Admin />}
       {activeTab === 'profile' && (
-        <div className="bg-white p-8 rounded-2xl shadow-sm border border-slate-200 text-center">
-          <div className="w-24 h-24 bg-slate-100 rounded-full mx-auto flex items-center justify-center text-4xl mb-4">👤</div>
-          <h3 className="text-2xl font-bold text-slate-800">{currentUser?.name}</h3>
-          <p className="text-slate-400 mb-6">@{currentUser?.username}</p>
-          <div className="max-w-xs mx-auto space-y-3 text-left">
-            <div className="flex justify-between border-b pb-2">
-              <span className="text-slate-400 font-medium">Email</span>
-              <span className="text-slate-700">{currentUser?.email}</span>
-            </div>
-            <div className="flex justify-between border-b pb-2">
-              <span className="text-slate-400 font-medium">Role</span>
-              <span className="text-indigo-600 font-bold uppercase text-xs pt-1">{currentUser?.role}</span>
-            </div>
+        <div className="bg-white p-12 rounded-[2rem] shadow-sm border border-slate-100 text-center animate-in fade-in slide-in-from-bottom duration-500">
+          <div className="w-32 h-32 bg-slate-50 rounded-full mx-auto flex items-center justify-center text-6xl mb-6 shadow-inner">👤</div>
+          <h3 className="text-3xl font-black text-slate-800 tracking-tight">{currentUser?.name}</h3>
+          <p className="text-slate-400 font-bold mb-8">@{currentUser?.username}</p>
+          <div className="max-w-xs mx-auto space-y-4 text-left">
+            <ProfileRow label="Role" value={currentUser?.role || ''} isHighlight />
+            <ProfileRow label="Member Since" value="July 2024" />
+            <ProfileRow label="Tournament Status" value="Active" />
           </div>
         </div>
       )}
@@ -98,17 +184,26 @@ const App: React.FC = () => {
   );
 };
 
-const LoginButton = ({ label, onClick, icon, desc }: any) => (
-  <button 
-    onClick={onClick}
-    className="w-full flex items-center p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl hover:border-indigo-300 hover:bg-indigo-50 transition-all group"
-  >
-    <div className="w-12 h-12 bg-white rounded-xl flex items-center justify-center text-2xl shadow-sm group-hover:scale-110 transition-transform">{icon}</div>
-    <div className="ml-4 text-left">
-      <p className="font-bold text-slate-800 group-hover:text-indigo-600 transition-colors">{label}</p>
-      <p className="text-xs text-slate-400 font-medium">{desc}</p>
-    </div>
-  </button>
+const Input = ({ label, value, onChange, placeholder, type = "text", disabled = false }: any) => (
+  <div className="space-y-1">
+    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">{label}</label>
+    <input 
+      type={type} 
+      placeholder={placeholder} 
+      disabled={disabled}
+      className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl focus:border-indigo-500 focus:bg-white outline-none font-bold transition-all disabled:opacity-50"
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      required
+    />
+  </div>
+);
+
+const ProfileRow = ({ label, value, isHighlight = false }: any) => (
+  <div className="flex justify-between items-center py-3 border-b border-slate-50">
+    <span className="text-xs font-black text-slate-400 uppercase tracking-widest">{label}</span>
+    <span className={`font-bold ${isHighlight ? 'text-indigo-600 uppercase text-xs' : 'text-slate-700'}`}>{value}</span>
+  </div>
 );
 
 export default App;

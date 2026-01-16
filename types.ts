@@ -26,9 +26,11 @@ export interface User {
   name: string;
   username: string;
   email: string;
+  password?: string; // Simulated storage
   role: UserRole;
   credits: number;
   avatar?: string;
+  resetRequested?: boolean; // For manual admin reset requests
 }
 
 export interface Team {

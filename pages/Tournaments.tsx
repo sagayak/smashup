@@ -1,11 +1,14 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Tournament, User, UserRole, TournamentType, MatchFormat } from '../types';
 import { store } from '../services/mockStore';
 import TournamentDetails from './TournamentDetails';
 
 const Tournaments: React.FC<{ user: User }> = ({ user }) => {
-  const [tournaments, setTournaments] = useState<Tournament[]>(store.getTournaments());
+  // Fix: initialize with empty array and fetch via useEffect
+  const [tournaments, setTournaments] = useState<Tournament[]>([]);
+  // Fix: usersMap to resolve user names synchronously in render
+  const [usersMap, setUsersMap] = useState<Record<string, User>>({});
   const [selectedTournament, setSelectedTournament] = useState<Tournament | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [newTourney, setNewTourney] = useState<Partial<Tournament>>({
@@ -18,15 +21,29 @@ const Tournaments: React.FC<{ user: User }> = ({ user }) => {
     numCourts: 2
   });
 
-  const handleCreate = () => {
+  // Fix: Fetch tournaments and users on mount
+  useEffect(() => {
+    async function loadData() {
+      const [t, u] = await Promise.all([store.getTournaments(), store.getAllUsers()]);
+      setTournaments(t);
+      const map: Record<string, User> = {};
+      u.forEach(user => { map[user.id] = user; });
+      setUsersMap(map);
+    }
+    loadData();
+  }, []);
+
+  // Fix: handleCreate must be async
+  const handleCreate = async () => {
     if (newTourney.name && newTourney.venue) {
-      const t = store.addTournament({
+      await store.addTournament({
         ...newTourney,
         organizerId: user.id,
         status: 'UPCOMING',
         participants: []
       } as Tournament);
-      setTournaments([...store.getTournaments()]);
+      const updated = await store.getTournaments();
+      setTournaments(updated);
       setShowCreate(false);
     }
   };
@@ -121,7 +138,8 @@ const Tournaments: React.FC<{ user: User }> = ({ user }) => {
                    <div className="flex -space-x-2">
                      {t.participants.slice(0, 3).map(pId => (
                        <div key={pId} className="w-8 h-8 rounded-full border-2 border-white bg-indigo-100 flex items-center justify-center text-[10px] font-black text-indigo-600">
-                          {store.getUser(pId)?.name[0]}
+                          {/* Fix: use usersMap for synchronous lookup */}
+                          {usersMap[pId]?.name[0] || '?'}
                        </div>
                      ))}
                    </div>
