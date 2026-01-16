@@ -27,7 +27,7 @@ class DataService {
   // Auth methods
   async login(username: string, password: string): Promise<User | null> {
     try {
-      const email = username.toLowerCase() + SHADOW_DOMAIN;
+      const email = username.toLowerCase().trim() + SHADOW_DOMAIN;
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
       const userDoc = await getDoc(doc(db, "users", userCredential.user.uid));
       return userDoc.exists() ? (userDoc.data() as User) : null;
@@ -39,25 +39,36 @@ class DataService {
 
   async signup(userData: Omit<User, 'id' | 'credits'>): Promise<User | null> {
     try {
-      // Check if this is the first user ever
-      const usersSnap = await getDocs(query(collection(db, "users"), limit(1)));
-      const isFirstUser = usersSnap.empty;
-
-      const email = userData.username.toLowerCase() + SHADOW_DOMAIN;
+      const email = userData.username.toLowerCase().trim() + SHADOW_DOMAIN;
+      
+      // 1. Create the Auth user first
       const userCredential = await createUserWithEmailAndPassword(auth, email, userData.password || "");
+      const uid = userCredential.user.uid;
+
+      // 2. NOW we are authenticated, we can check if the database is empty
+      // This works because the rule allows 'read' for 'isSignedIn()'
+      let role = userData.role;
+      try {
+        const usersSnap = await getDocs(query(collection(db, "users"), limit(1)));
+        if (usersSnap.empty) {
+          role = UserRole.SUPERADMIN; // First user ever is always SuperAdmin
+        }
+      } catch (e) {
+        console.warn("Could not check for first user, defaulting to selected role");
+      }
       
       const newUser: User = {
-        ...userData,
-        id: userCredential.user.uid,
+        name: userData.name,
+        username: userData.username.toLowerCase().trim(),
+        email: email,
+        id: uid,
         credits: 0,
         resetRequested: false,
-        role: isFirstUser ? UserRole.SUPERADMIN : userData.role // Bootstrap first user as SuperAdmin
+        role: role
       };
       
-      // Remove password before saving to Firestore
-      const { password, ...firestoreData } = newUser;
-
-      await setDoc(doc(db, "users", newUser.id), firestoreData);
+      // 3. Create the profile document
+      await setDoc(doc(db, "users", uid), newUser);
       return newUser;
     } catch (error) {
       console.error("Signup Error:", error);
@@ -70,7 +81,7 @@ class DataService {
   }
 
   async requestReset(username: string): Promise<boolean> {
-    const q = query(collection(db, "users"), where("username", "==", username.toLowerCase()));
+    const q = query(collection(db, "users"), where("username", "==", username.toLowerCase().trim()));
     const querySnapshot = await getDocs(q);
     if (!querySnapshot.empty) {
       const userDoc = querySnapshot.docs[0];
@@ -106,7 +117,6 @@ class DataService {
     await updateDoc(doc(db, "tournaments", tournamentId), {
       participants: arrayUnion(userId)
     });
-    // Deduct entry fee? Let's just award 10 credits for joining for now
     await this.adjustCredits(userId, 10, `Joined tournament ${tournamentId}`);
   }
 
