@@ -19,31 +19,24 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
   const [joinRequests, setJoinRequests] = useState<JoinRequest[]>([]);
   const [isLocked, setIsLocked] = useState(initialTournament.isLocked);
   
-  // Tie-up (Match) Selection State
   const [selectedT1, setSelectedT1] = useState('');
   const [selectedT2, setSelectedT2] = useState('');
 
-  // Scorer Modal
   const [scoringMatch, setScoringMatch] = useState<Match | null>(null);
   const [pinInput, setPinInput] = useState('');
   const [showPinModal, setShowPinModal] = useState(false);
   const [scores, setScores] = useState<MatchScore[]>([]);
 
-  // Players Tab State
   const [playerSearch, setPlayerSearch] = useState('');
   const [rosterFilter, setRosterFilter] = useState('');
   const [isAddingPlayer, setIsAddingPlayer] = useState(false);
 
-  // Team Form
   const [newTeamName, setNewTeamName] = useState('');
   const [selectedPoolPlayers, setSelectedPoolPlayers] = useState<TournamentPlayer[]>([]);
   const [isBulkOpen, setIsBulkOpen] = useState(false);
   const [bulkInput, setBulkInput] = useState('');
 
-  // Match Config
   const [matchConfig, setMatchConfig] = useState({ points: 21, bestOf: 3, court: 1, umpire: '' });
-
-  // Settings State
   const [tempPin, setTempPin] = useState(initialTournament.scorerPin || '0000');
 
   useEffect(() => { 
@@ -249,6 +242,32 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
     await loadData();
   };
 
+  const handleDeleteTournament = async () => {
+    if (!window.confirm("CRITICAL: This will permanently delete the tournament, all teams, matches, and standings. This action cannot be undone. Are you sure?")) return;
+    if (!window.confirm("Type 'DELETE' to confirm you understand this is permanent.")) return;
+    
+    try {
+      await store.deleteTournament(tournament.id);
+      alert("Tournament deleted successfully.");
+      onBack();
+    } catch (err) {
+      console.error("Deletion failed:", err);
+      alert("Failed to delete tournament.");
+    }
+  };
+
+  const handleTogglePrivacy = async (isPublic: boolean) => {
+    // Optimistically update local state for better UI responsiveness
+    setTournament(prev => ({ ...prev, isPublic }));
+    try {
+      await store.updateTournamentSettings(tournament.id, { isPublic });
+    } catch (err) {
+      console.error("Privacy toggle failed:", err);
+      alert("Failed to update privacy settings.");
+      await loadData(); // Revert on failure
+    }
+  };
+
   const filteredPool = tournament.playerPool?.filter(p => 
     p.name.toLowerCase().includes(rosterFilter.toLowerCase()) || 
     p.username?.toLowerCase().includes(rosterFilter.toLowerCase())
@@ -381,7 +400,6 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
                   </div>
                </div>
              ))}
-             {matches.length === 0 && <div className="text-center py-24 bg-white rounded-[2rem] border border-dashed border-slate-200"><p className="text-slate-400 font-black uppercase tracking-widest text-xs">No active tie-ups found.</p></div>}
            </div>
         </div>
       )}
@@ -403,7 +421,6 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
                 </div>
              </div>
            ))}
-           {joinRequests.length === 0 && <div className="col-span-full py-20 text-center text-slate-300 font-black uppercase tracking-widest text-xs bg-white rounded-[2rem] border border-dashed border-slate-200">No pending join requests.</div>}
         </div>
       )}
 
@@ -411,7 +428,6 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
            <div className="bg-white p-8 rounded-[2rem] border border-slate-100 shadow-sm">
               <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-6">Ranking Criteria Order</h4>
-              <p className="text-[10px] text-slate-400 mb-6 italic">Determines standings placement in case of ties. Top is highest priority.</p>
               <div className="space-y-2">
                  {(tournament.rankingCriteriaOrder || []).map((criterion, idx) => (
                    <div key={criterion} className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100">
@@ -446,12 +462,12 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
                     <div className="flex items-center justify-between p-4 bg-indigo-50 rounded-2xl border border-indigo-100">
                        <span className="text-[10px] font-black uppercase text-indigo-600">Privacy Status</span>
                        <select 
-                         className="bg-transparent font-black uppercase text-[10px] outline-none text-indigo-700"
+                         className="bg-transparent font-black uppercase text-[10px] outline-none text-indigo-700 cursor-pointer"
                          value={tournament.isPublic ? 'true' : 'false'}
-                         onChange={e => store.updateTournamentSettings(tournament.id, { isPublic: e.target.value === 'true' }).then(loadData)}
+                         onChange={e => handleTogglePrivacy(e.target.value === 'true')}
                        >
-                         <option value="true">PUBLIC</option>
-                         <option value="false">PROTECTED</option>
+                         <option value="true">PUBLIC (Open Join)</option>
+                         <option value="false">PROTECTED (Approval Required)</option>
                        </select>
                     </div>
                  </div>
@@ -459,15 +475,14 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
               <div className="bg-rose-50 p-8 rounded-[2rem] border border-rose-100">
                  <h4 className="text-[10px] font-black text-rose-400 uppercase tracking-widest mb-4 italic">Danger Zone</h4>
                  <button 
-                  onClick={() => window.confirm("Delete tournament?") && store.updateTournamentSettings(tournament.id, { status: 'FINISHED' }).then(onBack)}
-                  className="w-full bg-white text-rose-500 border border-rose-200 font-black py-4 rounded-2xl uppercase tracking-widest text-[10px] shadow-sm hover:bg-rose-500 hover:text-white transition-all"
-                 >Delete Arena Forever</button>
+                  onClick={handleDeleteTournament}
+                  className="w-full bg-white text-rose-600 border border-rose-200 font-black py-4 rounded-2xl uppercase tracking-widest text-[10px] shadow-sm hover:bg-rose-600 hover:text-white transition-all"
+                 >Delete Arena Permanently</button>
               </div>
            </div>
         </div>
       )}
 
-      {/* Existing Players and Teams Tabs ... Keep their functionality intact but adjust UI if needed */}
       {activeTab === 'players' && (
         <div className="space-y-6">
            {isOrganizer && !isLocked && (
@@ -496,10 +511,7 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white/50 p-4 rounded-[2rem] border border-slate-100">
              <div className="px-4 flex items-center space-x-6">
                <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest whitespace-nowrap">Roster List ({filteredPool.length})</h4>
-               <button 
-                onClick={handleExportCSV}
-                className="text-[9px] font-black text-indigo-600 hover:text-indigo-800 uppercase tracking-widest flex items-center space-x-1 border border-indigo-200 bg-indigo-50/50 px-3 py-1.5 rounded-lg transition-colors"
-               >
+               <button onClick={handleExportCSV} className="text-[9px] font-black text-indigo-600 hover:text-indigo-800 uppercase tracking-widest flex items-center space-x-1 border border-indigo-200 bg-indigo-50/50 px-3 py-1.5 rounded-lg transition-colors">
                  <span>Export CSV</span>
                </button>
              </div>

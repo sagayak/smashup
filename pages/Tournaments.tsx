@@ -6,6 +6,7 @@ import TournamentDetails from './TournamentDetails';
 
 const Tournaments: React.FC<{ user: User }> = ({ user }) => {
   const [tournaments, setTournaments] = useState<Tournament[]>([]);
+  const [users, setUsers] = useState<User[]>([]);
   const [selectedTournament, setSelectedTournament] = useState<Tournament | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
@@ -21,9 +22,14 @@ const Tournaments: React.FC<{ user: User }> = ({ user }) => {
   useEffect(() => { loadData(); }, []);
 
   async function loadData() {
-    const all = await store.getTournaments();
+    const [allTourneys, allUsers] = await Promise.all([
+      store.getTournaments(),
+      store.getAllUsers()
+    ]);
+    
+    setUsers(allUsers);
     // Filter visibility: Public OR Participant OR Organizer OR SuperAdmin
-    const visible = all.filter(t => 
+    const visible = allTourneys.filter(t => 
       t.isPublic || 
       t.participants.includes(user.username) || 
       t.organizerId === user.id || 
@@ -36,12 +42,10 @@ const Tournaments: React.FC<{ user: User }> = ({ user }) => {
     if (!searchId) return;
     const t = await store.searchTournamentById(searchId);
     if (t) {
-       // Check if already participant or organizer
        if (t.participants.includes(user.username) || t.organizerId === user.id || user.role === UserRole.SUPERADMIN) {
          setSelectedTournament(t);
        } else {
-         // Not a participant yet, show join preview
-         setTournaments([t]); // Just show this one in the list
+         setTournaments([t]); 
        }
     } else {
       setError("Tournament ID not found");
@@ -72,7 +76,7 @@ const Tournaments: React.FC<{ user: User }> = ({ user }) => {
     
     setIsCreating(true);
     try {
-      await store.addTournament({
+      const created = await store.addTournament({
         ...newTourney,
         organizerId: user.id,
         status: 'UPCOMING',
@@ -95,7 +99,7 @@ const Tournaments: React.FC<{ user: User }> = ({ user }) => {
   };
 
   if (selectedTournament) {
-    return <TournamentDetails tournament={selectedTournament} user={user} onBack={() => setSelectedTournament(null)} />;
+    return <TournamentDetails tournament={selectedTournament} user={user} onBack={() => { setSelectedTournament(null); loadData(); }} />;
   }
 
   return (
@@ -192,12 +196,13 @@ const Tournaments: React.FC<{ user: User }> = ({ user }) => {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
         {tournaments.map(t => {
           const isMember = t.participants.includes(user.username) || t.organizerId === user.id || user.role === UserRole.SUPERADMIN;
+          const organizer = users.find(u => u.id === t.organizerId);
           return (
             <div key={t.id} className="bg-white p-8 rounded-[2rem] border border-slate-100 shadow-sm hover:shadow-2xl transition-all group overflow-hidden relative">
               <div className="flex justify-between items-start mb-6">
                  <span className="text-[10px] font-black uppercase tracking-widest text-indigo-500 bg-indigo-50 px-3 py-1 rounded-lg">ID: {t.uniqueId}</span>
                  <div className="flex space-x-1">
-                    <span className={`px-2 py-1 rounded-lg text-[8px] font-black uppercase tracking-widest ${t.isPublic ? 'bg-indigo-500 text-white' : 'bg-slate-200 text-slate-500'}`}>
+                    <span className={`px-2 py-1 rounded-lg text-[8px] font-black uppercase tracking-widest ${t.isPublic ? 'bg-emerald-500 text-white' : 'bg-slate-200 text-slate-500'}`}>
                       {t.isPublic ? 'Public' : 'Protected'}
                     </span>
                     <span className={`px-2 py-1 rounded-lg text-[8px] font-black uppercase tracking-widest ${t.isLocked ? 'bg-slate-900 text-white' : 'bg-green-100 text-green-600'}`}>
@@ -206,7 +211,8 @@ const Tournaments: React.FC<{ user: User }> = ({ user }) => {
                  </div>
               </div>
               <h4 className="text-2xl font-black text-slate-800 tracking-tighter mb-1 uppercase italic leading-none">{t.name}</h4>
-              <p className="text-slate-400 font-bold text-[10px] uppercase tracking-widest mb-6">{t.venue}</p>
+              <p className="text-slate-400 font-bold text-[10px] uppercase tracking-widest mb-1">{t.venue}</p>
+              <p className="text-[9px] font-black text-indigo-400 uppercase tracking-widest mb-6 italic">Organized by: {organizer?.name || 'Unknown'}</p>
               
               {isMember ? (
                 <button 
