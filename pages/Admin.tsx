@@ -1,12 +1,17 @@
 
 import React, { useState, useEffect } from 'react';
-import { User, UserRole, CreditRequest } from '../types';
+import { User, UserRole, CreditRequest, Tournament } from '../types';
 import { store } from '../services/mockStore';
 
-const Admin: React.FC = () => {
+interface AdminProps {
+  user: User;
+}
+
+const Admin: React.FC<AdminProps> = ({ user: currentUser }) => {
   const [users, setUsers] = useState<User[]>([]);
   const [requests, setRequests] = useState<CreditRequest[]>([]);
-  const [view, setView] = useState<'users' | 'requests'>('users');
+  const [tournaments, setTournaments] = useState<Tournament[]>([]);
+  const [view, setView] = useState<'users' | 'requests' | 'tournaments'>('users');
   const [isAdjusting, setIsAdjusting] = useState<User | null>(null);
   const [adjustAmount, setAdjustAmount] = useState('0');
   const [adjustReason, setAdjustReason] = useState('Manual adjustment by Admin');
@@ -14,9 +19,14 @@ const Admin: React.FC = () => {
   useEffect(() => { loadData(); }, []);
 
   async function loadData() {
-    const [allUsers, allRequests] = await Promise.all([store.getAllUsers(), store.getCreditRequests()]);
+    const [allUsers, allRequests, allTourneys] = await Promise.all([
+      store.getAllUsers(), 
+      store.getCreditRequests(),
+      store.getTournaments()
+    ]);
     setUsers(allUsers);
     setRequests(allRequests);
+    setTournaments(allTourneys);
   }
 
   const handleResolveRequest = async (id: string, approved: boolean) => {
@@ -35,27 +45,54 @@ const Admin: React.FC = () => {
       setAdjustAmount('0');
       setAdjustReason('Manual adjustment by Admin');
       await loadData();
-      alert(`Successfully adjusted ${isAdjusting.name}'s balance by ${amount} credits.`);
     } catch (err) {
       console.error("Adjustment failed", err);
       alert("Adjustment failed");
     }
   };
 
+  const handleDeleteUser = async (userToDelete: User) => {
+    if (userToDelete.id === currentUser.id) {
+      return alert("Critical Error: You cannot delete your own profile.");
+    }
+    if (!window.confirm(`SUPERADMIN ACTION: Permanently delete user profile "${userToDelete.name}" (@${userToDelete.username})?`)) return;
+    
+    try {
+      await store.deleteUser(userToDelete.id);
+      await loadData();
+    } catch (err) {
+      alert("Failed to delete user profile.");
+    }
+  };
+
+  const handleDeleteTournament = async (id: string, name: string) => {
+    if (!window.confirm(`SUPERADMIN ACTION: Permanently delete "${name}" and all associated data?`)) return;
+    try {
+      await store.deleteTournament(id);
+      await loadData();
+    } catch (err) {
+      alert("Failed to delete tournament.");
+    }
+  };
+
+  const isSuperAdmin = currentUser.role === UserRole.SUPERADMIN;
+
   return (
     <div className="space-y-8 animate-in fade-in duration-500">
-      <div className="flex space-x-4">
-        <button 
-          onClick={() => setView('users')}
-          className={`px-8 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${view === 'users' ? 'bg-slate-900 text-white shadow-xl' : 'text-slate-400 hover:text-slate-900 bg-white'}`}
-        >Users</button>
-        <button 
-          onClick={() => setView('requests')}
-          className={`px-8 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center space-x-2 ${view === 'requests' ? 'bg-slate-900 text-white shadow-xl' : 'text-slate-400 hover:text-slate-900 bg-white'}`}
-        >
-          <span>Credit Requests</span>
-          {requests.length > 0 && <span className="bg-rose-500 text-white w-4 h-4 rounded-full flex items-center justify-center text-[8px]">{requests.length}</span>}
-        </button>
+      <div className="flex space-x-2 overflow-x-auto pb-2 no-scrollbar">
+        <TabButton active={view === 'users'} onClick={() => setView('users')} label="Users" />
+        <TabButton 
+          active={view === 'requests'} 
+          onClick={() => setView('requests')} 
+          label="Requests" 
+          count={requests.length} 
+        />
+        <TabButton 
+          active={view === 'tournaments'} 
+          onClick={() => setView('tournaments')} 
+          label="Arenas" 
+          count={tournaments.length} 
+        />
       </div>
 
       {view === 'users' && (
@@ -76,7 +113,7 @@ const Admin: React.FC = () => {
                         <div className="flex items-center space-x-3">
                            <div className="w-10 h-10 bg-slate-100 rounded-xl flex items-center justify-center font-black text-slate-400">{u.name[0]}</div>
                            <div>
-                              <p className="font-bold text-slate-800 leading-none uppercase italic text-sm">{u.name}</p>
+                              <p className="font-bold text-slate-800 uppercase italic text-sm">{u.name}</p>
                               <p className="text-[10px] text-slate-400 font-bold tracking-widest uppercase mt-0.5">@{u.username}</p>
                            </div>
                         </div>
@@ -88,12 +125,18 @@ const Admin: React.FC = () => {
                       </td>
                       <td className="px-8 py-5 text-center font-black text-indigo-600 tabular-nums">{u.credits}</td>
                       <td className="px-8 py-5 text-right">
-                         <button 
-                           onClick={() => setIsAdjusting(u)}
-                           className="bg-indigo-600 text-white px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest shadow-lg shadow-indigo-100 hover:scale-105 active:scale-95 transition-all"
-                         >
-                           Add Credits
-                         </button>
+                         <div className="flex justify-end space-x-2">
+                           <button 
+                             onClick={() => setIsAdjusting(u)}
+                             className="bg-indigo-600 text-white px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest shadow-lg active:scale-95 transition-all"
+                           >Add Credits</button>
+                           {isSuperAdmin && u.id !== currentUser.id && (
+                             <button 
+                               onClick={() => handleDeleteUser(u)}
+                               className="bg-rose-50 text-rose-500 px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest hover:bg-rose-500 hover:text-white transition-all shadow-sm active:scale-95"
+                             >Delete</button>
+                           )}
+                         </div>
                       </td>
                    </tr>
                  ))}
@@ -119,11 +162,46 @@ const Admin: React.FC = () => {
                 </div>
              </div>
            ))}
-           {requests.length === 0 && (
-             <div className="col-span-full py-20 text-center bg-white rounded-[2rem] border border-dashed border-slate-200">
-               <p className="text-slate-300 font-black uppercase tracking-widest text-xs">No pending requests.</p>
-             </div>
-           )}
+           {requests.length === 0 && <div className="col-span-full py-20 text-center bg-white rounded-[2rem] border border-dashed border-slate-200"><p className="text-slate-300 font-black uppercase tracking-widest text-xs">No pending requests.</p></div>}
+        </div>
+      )}
+
+      {view === 'tournaments' && (
+        <div className="bg-white rounded-[2rem] border border-slate-100 shadow-sm overflow-hidden">
+           <table className="w-full text-left">
+              <thead className="bg-slate-50/50">
+                 <tr className="text-[9px] font-black text-slate-400 uppercase tracking-widest">
+                    <th className="px-8 py-5">Arena</th>
+                    <th className="px-8 py-5">Organizer</th>
+                    <th className="px-8 py-5">Privacy</th>
+                    <th className="px-8 py-5 text-right">Action</th>
+                 </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-50">
+                 {tournaments.map(t => (
+                   <tr key={t.id} className="hover:bg-slate-50/50 transition-colors">
+                      <td className="px-8 py-5">
+                         <p className="font-bold text-slate-800 uppercase italic text-sm">{t.name}</p>
+                         <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">ID: {t.uniqueId}</p>
+                      </td>
+                      <td className="px-8 py-5">
+                         <p className="text-[10px] font-black text-slate-600 uppercase tracking-widest">{users.find(u => u.id === t.organizerId)?.name || 'Unknown'}</p>
+                      </td>
+                      <td className="px-8 py-5">
+                         <span className={`px-2 py-1 rounded text-[8px] font-black uppercase tracking-widest ${t.isPublic ? 'bg-indigo-50 text-indigo-500' : 'bg-slate-100 text-slate-400'}`}>
+                           {t.isPublic ? 'Public' : 'Protected'}
+                         </span>
+                      </td>
+                      <td className="px-8 py-5 text-right">
+                         <button 
+                           onClick={() => handleDeleteTournament(t.id, t.name)}
+                           className="bg-rose-50 text-rose-500 px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest hover:bg-rose-500 hover:text-white transition-all"
+                         >Delete</button>
+                      </td>
+                   </tr>
+                 ))}
+              </tbody>
+           </table>
         </div>
       )}
 
@@ -131,11 +209,9 @@ const Admin: React.FC = () => {
         <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-[300] flex items-center justify-center p-4">
            <div className="bg-white rounded-[2.5rem] w-full max-w-md p-10 shadow-2xl animate-in zoom-in duration-300">
               <h4 className="text-2xl font-black text-slate-800 text-center mb-2 italic uppercase tracking-tighter">Adjust Credits</h4>
-              <p className="text-center text-[10px] font-black text-slate-400 uppercase tracking-widest mb-8">User: {isAdjusting.name} (@{isAdjusting.username})</p>
-              
               <div className="space-y-6 mb-10">
                  <div>
-                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 block mb-2">Amount (Negative to deduct)</label>
+                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 block mb-2">Amount</label>
                    <input 
                      type="number" 
                      className="w-full p-5 bg-slate-50 rounded-2xl text-center text-3xl font-black outline-none border-2 border-transparent focus:border-indigo-500 transition-all"
@@ -153,20 +229,9 @@ const Admin: React.FC = () => {
                    />
                  </div>
               </div>
-
               <div className="flex space-x-4">
-                 <button 
-                  onClick={handleManualAdjust}
-                  className="flex-grow bg-indigo-600 text-white font-black py-5 rounded-2xl uppercase tracking-widest text-xs shadow-xl shadow-indigo-100 active:scale-95 transition-all"
-                 >
-                   Apply Adjustment
-                 </button>
-                 <button 
-                  onClick={() => setIsAdjusting(null)}
-                  className="px-8 font-black text-slate-400 uppercase tracking-widest text-[10px] hover:text-slate-600 transition-colors"
-                 >
-                   Cancel
-                 </button>
+                 <button onClick={handleManualAdjust} className="flex-grow bg-indigo-600 text-white font-black py-5 rounded-2xl uppercase tracking-widest text-xs shadow-xl active:scale-95 transition-all">Apply</button>
+                 <button onClick={() => setIsAdjusting(null)} className="px-8 font-black text-slate-400 uppercase tracking-widest text-[10px]">Cancel</button>
               </div>
            </div>
         </div>
@@ -174,5 +239,15 @@ const Admin: React.FC = () => {
     </div>
   );
 };
+
+const TabButton = ({ active, onClick, label, count }: any) => (
+  <button 
+    onClick={onClick} 
+    className={`px-8 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center space-x-2 shrink-0 ${active ? 'bg-slate-900 text-white shadow-xl' : 'text-slate-400 hover:text-slate-900 bg-white'}`}
+  >
+    <span>{label}</span>
+    {count !== undefined && <span className={`w-4 h-4 rounded-full flex items-center justify-center text-[8px] ${active ? 'bg-indigo-500 text-white' : 'bg-slate-100 text-slate-400'}`}>{count}</span>}
+  </button>
+);
 
 export default Admin;

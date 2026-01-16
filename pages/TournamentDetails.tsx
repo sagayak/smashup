@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Tournament, Match, User, UserRole, MatchStatus, Team, TournamentPlayer, MatchScore, JoinRequest, RankingCriterion } from '../types';
 import { store } from '../services/mockStore';
 
@@ -33,11 +33,11 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
   const [rosterFilter, setRosterFilter] = useState('');
   const [isAddingPlayer, setIsAddingPlayer] = useState(false);
 
-  // Team Creation State
+  // Team Tab State
+  const [activeTeamId, setActiveTeamId] = useState<string | null>(null);
   const [newTeamName, setNewTeamName] = useState('');
   const [selectedPoolPlayers, setSelectedPoolPlayers] = useState<string[]>([]);
   const [isCreatingTeam, setIsCreatingTeam] = useState(false);
-  // Fix: Added missing state for bulk import functionality
   const [bulkInput, setBulkInput] = useState('');
 
   const [matchConfig, setMatchConfig] = useState({ points: 21, bestOf: 3, court: 1, umpire: '' });
@@ -114,7 +114,7 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
       const customPlayerNames: string[] = [];
       
       selectedPoolPlayers.forEach(pName => {
-        const poolPlayer = tournament.playerPool.find(pp => pp.name === pName);
+        const poolPlayer = (tournament.playerPool || []).find(pp => pp.name === pName);
         if (poolPlayer?.id) playerIds.push(poolPlayer.id);
         else customPlayerNames.push(pName);
       });
@@ -146,7 +146,7 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
         const customNames: string[] = [];
         for (const name of playerNames) {
           const cleaned = name.replace('@', '').toLowerCase();
-          const poolPlayer = tournament.playerPool.find(pp => pp.username?.toLowerCase() === cleaned || pp.name.toLowerCase() === name.toLowerCase());
+          const poolPlayer = (tournament.playerPool || []).find(pp => pp.username?.toLowerCase() === cleaned || pp.name.toLowerCase() === name.toLowerCase());
           if (poolPlayer?.id) playerIds.push(poolPlayer.id);
           else customNames.push(name);
         }
@@ -161,6 +161,7 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
   const handleDeleteTeam = async (teamId: string) => {
     if (!window.confirm("Remove this team?")) return;
     await store.deleteTeam(teamId);
+    if (activeTeamId === teamId) setActiveTeamId(null);
     await loadData();
   };
 
@@ -208,7 +209,6 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
       return !isComplete;
     });
     
-    // If all sets are complete, just use the last set (or do nothing)
     const idx = currentSetIndex === -1 ? scores.length - 1 : currentSetIndex;
     
     const newScores = [...scores];
@@ -217,15 +217,6 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
     
     setScores(newScores);
     handleSaveScore(newScores);
-  };
-
-  const verifyPin = () => {
-    if (pinInput === tournament.scorerPin || isOrganizer) {
-      setIsPinVerified(true);
-    } else {
-      alert("Invalid Scorer PIN");
-      setPinInput('');
-    }
   };
 
   const moveRankingCriterion = (index: number, direction: 'up' | 'down') => {
@@ -418,6 +409,182 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
     );
   }
 
+  // --- TEAM DASHBOARD VIEW ---
+  const TeamDashboard = () => {
+    const team = teams.find(t => t.id === activeTeamId);
+    if (!team) return null;
+
+    const teamMatches = matches.filter(m => m.participants.includes(team.id));
+    const won = teamMatches.filter(m => m.winnerId === team.id).length;
+    const lost = teamMatches.filter(m => m.status === MatchStatus.COMPLETED && m.winnerId && m.winnerId !== team.id).length;
+    const scheduled = teamMatches.filter(m => m.status === MatchStatus.SCHEDULED).length;
+    const umpireDuty = matches.filter(m => m.umpireName === team.name).length;
+
+    // Head-to-Head calculations
+    const h2h = useMemo(() => {
+      const results: Record<string, { w: number, l: number, name: string }> = {};
+      teams.forEach(t => {
+        if (t.id === team.id) return;
+        results[t.id] = { w: 0, l: 0, name: t.name };
+      });
+      teamMatches.filter(m => m.status === MatchStatus.COMPLETED).forEach(m => {
+        const oppId = m.participants.find(id => id !== team.id);
+        if (oppId && results[oppId]) {
+          if (m.winnerId === team.id) results[oppId].w++;
+          else results[oppId].l++;
+        }
+      });
+      return Object.values(results).filter(r => (r.w + r.l) > 0);
+    }, [teamMatches, teams, team.id]);
+
+    return (
+      <div className="space-y-8 animate-in slide-in-from-right duration-300">
+        <div className="flex items-center space-x-4">
+          <button onClick={() => setActiveTeamId(null)} className="p-2 hover:bg-slate-200 rounded-full transition-colors bg-white shadow-sm border border-slate-100">
+            <svg className="w-5 h-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7" /></svg>
+          </button>
+          <h3 className="text-3xl font-black text-slate-800 uppercase italic tracking-tighter">{team.name} <span className="text-indigo-600">Overview</span></h3>
+        </div>
+
+        {/* Stat Cards */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <StatMiniCard label="Scheduled" value={scheduled} color="border-indigo-500 text-indigo-500" />
+          <StatMiniCard label="Won" value={won} color="border-emerald-500 text-emerald-500" />
+          <StatMiniCard label="Loss" value={lost} color="border-rose-500 text-rose-500" />
+          <StatMiniCard label="Umpire Duty" value={umpireDuty} color="border-slate-800 text-slate-800" />
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          <div className="lg:col-span-2 space-y-8">
+            {/* Tabular Tie-ups */}
+            <div className="bg-white rounded-[2rem] border border-slate-100 shadow-sm overflow-hidden">
+              <div className="p-6 border-b border-slate-50 flex justify-between items-center">
+                <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest italic">Tournament Tie-ups</h4>
+              </div>
+              <table className="w-full text-left">
+                <thead className="bg-slate-50/50">
+                  <tr className="text-[9px] font-black text-slate-400 uppercase tracking-widest">
+                    <th className="px-6 py-4">Opponent</th>
+                    <th className="px-6 py-4 text-center">Score</th>
+                    <th className="px-6 py-4 text-center">Result</th>
+                    <th className="px-6 py-4 text-right">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-50">
+                  {teamMatches.map(m => {
+                    const oppId = m.participants.find(id => id !== team.id);
+                    const oppName = teams.find(t => t.id === oppId)?.name || 'Unknown';
+                    const isWin = m.winnerId === team.id;
+                    return (
+                      <tr key={m.id} className="hover:bg-slate-50/50 transition-colors">
+                        <td className="px-6 py-4 font-black text-slate-800 text-xs uppercase italic tracking-tighter">{oppName}</td>
+                        <td className="px-6 py-4 text-center font-mono text-xs font-black text-slate-500">
+                          {m.scores.map(s => `${s.s1}-${s.s2}`).join(' ')}
+                        </td>
+                        <td className="px-6 py-4 text-center">
+                          {m.status === MatchStatus.COMPLETED ? (
+                            <span className={`px-2 py-1 rounded-md text-[9px] font-black uppercase ${isWin ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>{isWin ? 'Win' : 'Loss'}</span>
+                          ) : <span className="text-slate-300">—</span>}
+                        </td>
+                        <td className="px-6 py-4 text-right">
+                          <span className={`text-[8px] font-black uppercase tracking-widest ${m.status === MatchStatus.LIVE ? 'text-indigo-600 animate-pulse' : 'text-slate-400'}`}>{m.status}</span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {teamMatches.length === 0 && <tr><td colSpan={4} className="p-12 text-center text-[10px] font-black uppercase text-slate-300 tracking-widest">No ties recorded yet.</td></tr>}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Head to Head Rivalry */}
+            <div className="bg-slate-900 rounded-[2rem] p-8 text-white">
+              <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-widest italic mb-6">Head-to-Head Rivalry</h4>
+              <div className="space-y-4">
+                {h2h.map(record => (
+                  <div key={record.name} className="flex items-center justify-between p-4 bg-slate-800 rounded-2xl border border-slate-700">
+                    <span className="text-xs font-black uppercase italic tracking-tighter">{record.name}</span>
+                    <div className="flex items-center space-x-4">
+                      <div className="text-center">
+                        <p className="text-[8px] font-black uppercase text-slate-500 mb-1">Win</p>
+                        <p className="text-lg font-black text-emerald-400 leading-none">{record.w}</p>
+                      </div>
+                      <div className="w-px h-6 bg-slate-700"></div>
+                      <div className="text-center">
+                        <p className="text-[8px] font-black uppercase text-slate-500 mb-1">Loss</p>
+                        <p className="text-lg font-black text-rose-400 leading-none">{record.l}</p>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+                {h2h.length === 0 && <p className="text-center text-[10px] font-black uppercase text-slate-600 tracking-widest">No head-to-head history in this arena.</p>}
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-8">
+            {/* Team Roster */}
+            <div className="bg-white p-8 rounded-[2rem] border border-slate-100 shadow-sm">
+              <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest italic mb-6">Lineup Roster</h4>
+              <div className="space-y-4">
+                {team.playerIds.map(pid => {
+                  const u = allUsers.find(x => x.id === pid);
+                  return (
+                    <div key={pid} className="flex items-center space-x-3 p-3 bg-slate-50 rounded-2xl border border-slate-100">
+                      <div className="w-10 h-10 bg-indigo-100 rounded-xl flex items-center justify-center font-black text-indigo-500 text-xs">{u?.name[0]}</div>
+                      <div>
+                        <p className="text-xs font-black uppercase italic tracking-tighter text-slate-800">{u?.name}</p>
+                        <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">@{u?.username}</p>
+                      </div>
+                    </div>
+                  );
+                })}
+                {team.customPlayerNames?.map(name => (
+                  <div key={name} className="flex items-center space-x-3 p-3 bg-slate-50 rounded-2xl border border-slate-100 border-dashed">
+                    <div className="w-10 h-10 bg-slate-100 rounded-xl flex items-center justify-center font-black text-slate-400 text-xs">?</div>
+                    <div>
+                      <p className="text-xs font-black uppercase italic tracking-tighter text-slate-600">{name}</p>
+                      <p className="text-[9px] font-black text-slate-300 uppercase tracking-widest italic">Guest Entry</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Recent Performance */}
+            <div className="bg-indigo-600 p-8 rounded-[2rem] text-white shadow-xl">
+              <h4 className="text-[10px] font-black text-indigo-200 uppercase tracking-widest italic mb-6">Recent Form</h4>
+              <div className="flex space-x-3">
+                {teamMatches.filter(m => m.status === MatchStatus.COMPLETED).slice(0, 5).map((m, i) => (
+                  <div key={i} className={`w-10 h-10 rounded-xl flex items-center justify-center font-black text-xs shadow-lg ${m.winnerId === team.id ? 'bg-emerald-500' : 'bg-rose-500'}`}>
+                    {m.winnerId === team.id ? 'W' : 'L'}
+                  </div>
+                ))}
+                {teamMatches.filter(m => m.status === MatchStatus.COMPLETED).length === 0 && <p className="text-[10px] font-black uppercase text-indigo-300">No results yet.</p>}
+              </div>
+            </div>
+
+            {isOrganizer && !isLocked && (
+              <button 
+                onClick={() => handleDeleteTeam(team.id)}
+                className="w-full bg-rose-50 text-rose-500 font-black py-4 rounded-2xl uppercase tracking-widest text-[10px] border border-rose-100 hover:bg-rose-500 hover:text-white transition-all shadow-sm"
+              >
+                Delete Team Forever
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const StatMiniCard = ({ label, value, color }: any) => (
+    <div className={`bg-white p-6 rounded-3xl border shadow-sm transition-all hover:scale-105 ${color}`}>
+      <p className="text-[9px] font-black uppercase tracking-widest mb-1 opacity-60">{label}</p>
+      <p className="text-3xl font-black italic tracking-tighter">{value}</p>
+    </div>
+  );
+
   return (
     <div className="space-y-8 pb-20">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -439,12 +606,12 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
       </div>
 
       <div className="flex space-x-2 overflow-x-auto pb-2 no-scrollbar">
-        <TabButton active={activeTab === 'matches'} onClick={() => setActiveTab('matches')} label="Matches" />
-        <TabButton active={activeTab === 'players'} onClick={() => setActiveTab('players')} label="Roster" />
+        <TabButton active={activeTab === 'matches'} onClick={() => { setActiveTab('matches'); setActiveTeamId(null); }} label="Matches" />
+        <TabButton active={activeTab === 'players'} onClick={() => { setActiveTab('players'); setActiveTeamId(null); }} label="Roster" />
         <TabButton active={activeTab === 'teams'} onClick={() => setActiveTab('teams')} label="Teams" />
-        <TabButton active={activeTab === 'standings'} onClick={() => setActiveTab('standings')} label="Standings" />
-        {isOrganizer && <TabButton active={activeTab === 'requests'} onClick={() => setActiveTab('requests')} label="Requests" />}
-        {isOrganizer && <TabButton active={activeTab === 'settings'} onClick={() => setActiveTab('settings')} label="Settings" />}
+        <TabButton active={activeTab === 'standings'} onClick={() => { setActiveTab('standings'); setActiveTeamId(null); }} label="Standings" />
+        {isOrganizer && <TabButton active={activeTab === 'requests'} onClick={() => { setActiveTab('requests'); setActiveTeamId(null); }} label="Requests" />}
+        {isOrganizer && <TabButton active={activeTab === 'settings'} onClick={() => { setActiveTab('settings'); setActiveTeamId(null); }} label="Settings" />}
       </div>
 
       {activeTab === 'matches' && (
@@ -473,8 +640,8 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
                   <button onClick={handleStartMatch} disabled={!selectedT1 || !selectedT2 || selectedT1 === selectedT2 || !isLocked} className="bg-white text-indigo-600 p-4 rounded-2xl font-black text-xs uppercase shadow-lg active:scale-95 transition-all disabled:opacity-50">Post Match</button>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-6 pt-6 border-t border-indigo-400">
-                  <ConfigItem label="Sets" value={matchConfig.bestOf} onChange={v => setMatchConfig({...matchConfig, bestOf: parseInt(v)})} options={[1,3,5]} />
-                  <ConfigItem label="Points" value={matchConfig.points} onChange={v => setMatchConfig({...matchConfig, points: parseInt(v)})} options={[11,15,21,30]} />
+                  <ConfigItem label="Sets" value={matchConfig.bestOf} onChange={(v: string) => setMatchConfig({...matchConfig, bestOf: parseInt(v)})} options={[1,3,5]} />
+                  <ConfigItem label="Points" value={matchConfig.points} onChange={(v: string) => setMatchConfig({...matchConfig, points: parseInt(v)})} options={[11,15,21,30]} />
                   <div className="flex items-center space-x-3"><span className="text-[10px] font-black uppercase text-indigo-200">Court</span><input type="number" className="w-12 bg-indigo-500 rounded-lg p-2 text-center font-black outline-none border border-indigo-400" value={matchConfig.court} onChange={e => setMatchConfig({...matchConfig, court: parseInt(e.target.value) || 1})} /></div>
                   <div className="flex items-center space-x-3"><span className="text-[10px] font-black uppercase text-indigo-200">Umpire</span><input type="text" placeholder="Name" className="flex-1 bg-indigo-500 rounded-lg p-2 font-bold text-xs outline-none border border-indigo-400" value={matchConfig.umpire} onChange={e => setMatchConfig({...matchConfig, umpire: e.target.value})} /></div>
                 </div>
@@ -518,95 +685,84 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
 
       {activeTab === 'teams' && (
         <div className="space-y-8">
-           {isOrganizer && !isLocked && (
-             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                {/* Manual Creation */}
-                <div className="bg-white p-8 rounded-[2rem] border border-slate-100 shadow-sm space-y-6">
-                   <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest italic">Create Single Team</h4>
-                   <Input label="Team Name" value={newTeamName} onChange={setNewTeamName} placeholder="The Aces" />
-                   
-                   <div className="space-y-2">
-                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Select Players from Roster</label>
-                      <div className="max-h-40 overflow-y-auto border-2 border-slate-50 rounded-2xl p-4 grid grid-cols-2 gap-2">
-                         {tournament.playerPool.map(p => (
-                           <button 
-                             key={p.name}
-                             onClick={() => setSelectedPoolPlayers(prev => prev.includes(p.name) ? prev.filter(x => x !== p.name) : [...prev, p.name])}
-                             className={`px-3 py-2 rounded-xl text-[10px] font-bold uppercase transition-all border ${selectedPoolPlayers.includes(p.name) ? 'bg-indigo-600 border-indigo-600 text-white shadow-lg' : 'bg-white text-slate-400 border-slate-100 hover:border-indigo-100'}`}
-                           >
-                             {p.name}
-                           </button>
-                         ))}
-                      </div>
-                   </div>
-
-                   <button 
-                     onClick={handleCreateTeam} 
-                     disabled={isCreatingTeam || !newTeamName || selectedPoolPlayers.length === 0}
-                     className="w-full bg-slate-900 text-white font-black py-4 rounded-2xl uppercase tracking-widest text-[10px] shadow-xl active:scale-95 transition-all disabled:opacity-50"
-                   >
-                     {isCreatingTeam ? 'Deploying...' : 'Deploy Team'}
-                   </button>
-                </div>
-
-                {/* Bulk Import */}
-                <div className="bg-indigo-600 p-8 rounded-[2rem] text-white shadow-xl space-y-4">
-                   <h4 className="text-[10px] font-black text-indigo-200 uppercase tracking-widest italic">Bulk Team Matrix</h4>
-                   <p className="text-[10px] text-indigo-100 opacity-80 leading-relaxed font-bold">
-                     Format: <code className="bg-indigo-700 px-1 rounded">TeamName, @Username, @Username</code><br/>
-                     One team per line. If username is not in roster, it creates a custom entry.
-                   </p>
-                   <textarea 
-                     className="w-full h-40 bg-indigo-500/50 rounded-2xl p-4 text-[11px] font-bold placeholder:text-indigo-300 outline-none border border-indigo-400 focus:border-white transition-all text-white"
-                     placeholder="Aces, @user1, @user2&#10;Kings, @user3, @user4"
-                     value={bulkInput}
-                     onChange={e => setBulkInput(e.target.value)}
-                   />
-                   <button 
-                    onClick={handleBulkImport}
-                    disabled={isCreatingTeam || !bulkInput}
-                    className="w-full bg-white text-indigo-600 font-black py-4 rounded-2xl uppercase tracking-widest text-[10px] shadow-lg active:scale-95 transition-all disabled:opacity-50"
-                   >
-                     {isCreatingTeam ? 'Parsing Matrix...' : 'Import Matrix'}
-                   </button>
-                </div>
-             </div>
-           )}
-
-           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {teams.map(t => (
-                <div key={t.id} className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm relative group hover:border-indigo-100 transition-all">
-                   <h5 className="font-black text-slate-800 uppercase italic tracking-tighter text-lg mb-4">{t.name}</h5>
-                   <div className="space-y-2">
-                      {t.playerIds.map(pid => {
-                        const u = allUsers.find(x => x.id === pid);
-                        return (
-                          <div key={pid} className="flex items-center space-x-2">
-                             <div className="w-2 h-2 rounded-full bg-emerald-500"></div>
-                             <span className="text-[11px] font-black uppercase tracking-tight text-slate-600">{u?.name || 'Unknown User'}</span>
-                             <span className="text-[9px] text-slate-300 font-bold">@{u?.username}</span>
+           {activeTeamId ? (
+             <TeamDashboard />
+           ) : (
+             <>
+               {isOrganizer && !isLocked && (
+                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                    {/* Manual Creation */}
+                    <div className="bg-white p-8 rounded-[2rem] border border-slate-100 shadow-sm space-y-6">
+                       <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest italic">Create Single Team</h4>
+                       <Input label="Team Name" value={newTeamName} onChange={setNewTeamName} placeholder="The Aces" />
+                       
+                       <div className="space-y-2">
+                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Select Players from Roster</label>
+                          <div className="max-h-40 overflow-y-auto border-2 border-slate-50 rounded-2xl p-4 grid grid-cols-2 gap-2">
+                             {(tournament.playerPool || []).map(p => (
+                               <button 
+                                 key={p.name}
+                                 onClick={() => setSelectedPoolPlayers(prev => prev.includes(p.name) ? prev.filter(x => x !== p.name) : [...prev, p.name])}
+                                 className={`px-3 py-2 rounded-xl text-[10px] font-bold uppercase transition-all border ${selectedPoolPlayers.includes(p.name) ? 'bg-indigo-600 border-indigo-600 text-white shadow-lg' : 'bg-white text-slate-400 border-slate-100 hover:border-indigo-100'}`}
+                               >
+                                 {p.name}
+                               </button>
+                             ))}
                           </div>
-                        );
-                      })}
-                      {t.customPlayerNames?.map(name => (
-                        <div key={name} className="flex items-center space-x-2">
-                           <div className="w-2 h-2 rounded-full bg-slate-300"></div>
-                           <span className="text-[11px] font-black uppercase tracking-tight text-slate-400">{name} (Custom)</span>
-                        </div>
-                      ))}
-                   </div>
-                   {isOrganizer && !isLocked && (
-                     <button 
-                      onClick={() => handleDeleteTeam(t.id)}
-                      className="absolute top-4 right-4 text-slate-200 hover:text-rose-500 transition-colors"
-                     >
-                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                     </button>
-                   )}
-                </div>
-              ))}
-              {teams.length === 0 && <div className="col-span-full py-20 text-center bg-white rounded-[2rem] border border-dashed border-slate-200"><p className="text-slate-300 font-black uppercase tracking-widest text-xs">No teams drafted yet.</p></div>}
-           </div>
+                       </div>
+
+                       <button 
+                         onClick={handleCreateTeam} 
+                         disabled={isCreatingTeam || !newTeamName || selectedPoolPlayers.length === 0}
+                         className="w-full bg-slate-900 text-white font-black py-4 rounded-2xl uppercase tracking-widest text-[10px] shadow-xl active:scale-95 transition-all disabled:opacity-50"
+                       >
+                         {isCreatingTeam ? 'Deploying...' : 'Deploy Team'}
+                       </button>
+                    </div>
+
+                    {/* Bulk Import */}
+                    <div className="bg-indigo-600 p-8 rounded-[2rem] text-white shadow-xl space-y-4">
+                       <h4 className="text-[10px] font-black text-indigo-200 uppercase tracking-widest italic">Bulk Team Matrix</h4>
+                       <p className="text-[10px] text-indigo-100 opacity-80 leading-relaxed font-bold">
+                         Format: <code className="bg-indigo-700 px-1 rounded">TeamName, @Username, @Username</code><br/>
+                         One team per line. If username is not in roster, it creates a custom entry.
+                       </p>
+                       <textarea 
+                         className="w-full h-40 bg-indigo-500/50 rounded-2xl p-4 text-[11px] font-bold placeholder:text-indigo-300 outline-none border border-indigo-400 focus:border-white transition-all text-white"
+                         placeholder="Aces, @user1, @user2&#10;Kings, @user3, @user4"
+                         value={bulkInput}
+                         onChange={e => setBulkInput(e.target.value)}
+                       />
+                       <button 
+                        onClick={handleBulkImport}
+                        disabled={isCreatingTeam || !bulkInput}
+                        className="w-full bg-white text-indigo-600 font-black py-4 rounded-2xl uppercase tracking-widest text-[10px] shadow-lg active:scale-95 transition-all disabled:opacity-50"
+                       >
+                         {isCreatingTeam ? 'Parsing Matrix...' : 'Import Matrix'}
+                       </button>
+                    </div>
+                 </div>
+               )}
+
+               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                  {teams.map(t => (
+                    <button 
+                      key={t.id} 
+                      onClick={() => setActiveTeamId(t.id)}
+                      className="bg-white p-8 rounded-[2rem] border border-slate-100 shadow-sm relative group hover:border-indigo-400 hover:-translate-y-1 transition-all text-left"
+                    >
+                       <h5 className="font-black text-slate-800 uppercase italic tracking-tighter text-2xl mb-2">{t.name}</h5>
+                       <div className="flex items-center space-x-2 text-[9px] font-black uppercase text-slate-400 tracking-widest">
+                         <span>{t.playerIds.length + (t.customPlayerNames?.length || 0)} Players</span>
+                         <span>•</span>
+                         <span className="text-indigo-600">View Board →</span>
+                       </div>
+                    </button>
+                  ))}
+                  {teams.length === 0 && <div className="col-span-full py-20 text-center bg-white rounded-[2rem] border border-dashed border-slate-200"><p className="text-slate-300 font-black uppercase tracking-widest text-xs">No teams drafted yet.</p></div>}
+               </div>
+             </>
+           )}
         </div>
       )}
 

@@ -64,6 +64,10 @@ class DataService {
     return snapshot.docs.map(doc => doc.data() as User);
   }
 
+  async deleteUser(userId: string) {
+    await deleteDoc(doc(db, "users", userId));
+  }
+
   async getUserByUsername(username: string): Promise<User | null> {
     const q = query(collection(db, "users"), where("username", "==", username.toLowerCase().trim()));
     const snapshot = await getDocs(q);

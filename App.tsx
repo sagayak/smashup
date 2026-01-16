@@ -167,7 +167,7 @@ const App: React.FC = () => {
     >
       {activeTab === 'dashboard' && currentUser && <Dashboard user={currentUser} />}
       {activeTab === 'tournaments' && currentUser && <Tournaments user={currentUser} />}
-      {activeTab === 'admin' && currentUser && <Admin />}
+      {activeTab === 'admin' && currentUser && <Admin user={currentUser} />}
       {activeTab === 'profile' && (
         <div className="bg-white p-12 rounded-[2rem] shadow-sm border border-slate-100 text-center animate-in fade-in slide-in-from-bottom duration-500">
           <div className="w-32 h-32 bg-slate-50 rounded-full mx-auto flex items-center justify-center text-6xl mb-6 shadow-inner">👤</div>

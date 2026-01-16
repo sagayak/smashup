@@ -4,17 +4,20 @@ service cloud.firestore {
   match /databases/{database}/documents {
     function isSignedIn() { return request.auth != null; }
     function getRole() { return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role; }
+    function isOrganizer(orgId) { return request.auth.uid == orgId; }
 
     match /users/{userId} {
       allow read: if isSignedIn();
       allow create: if isSignedIn() && request.auth.uid == userId;
       allow update: if isSignedIn() && (request.auth.uid == userId || getRole() == 'SUPERADMIN');
+      allow delete: if isSignedIn() && getRole() == 'SUPERADMIN';
     }
 
     match /tournaments/{tournamentId} {
       allow read: if isSignedIn();
       allow create: if isSignedIn();
       allow update: if isSignedIn() && (getRole() == 'SUPERADMIN' || resource.data.organizerId == request.auth.uid || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['participants']));
+      allow delete: if isSignedIn() && (getRole() == 'SUPERADMIN' || resource.data.organizerId == request.auth.uid);
     }
 
     match /teams/{teamId} {
@@ -31,6 +34,14 @@ service cloud.firestore {
       allow read: if isSignedIn();
       allow create: if isSignedIn();
       allow update: if isSignedIn() && getRole() == 'SUPERADMIN';
+      allow delete: if isSignedIn() && getRole() == 'SUPERADMIN';
+    }
+
+    match /joinRequests/{requestId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update: if isSignedIn() && (getRole() == 'SUPERADMIN' || getRole() == 'ORGANIZER');
+      allow delete: if isSignedIn() && (getRole() == 'SUPERADMIN' || getRole() == 'ORGANIZER');
     }
 
     match /creditLogs/{logId} {
