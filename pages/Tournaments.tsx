@@ -15,7 +15,7 @@ const Tournaments: React.FC<{ user: User }> = ({ user }) => {
   const [newTourney, setNewTourney] = useState<Partial<Tournament>>({
     name: '', venue: '', startDate: '', endDate: '',
     type: TournamentType.LEAGUE, format: MatchFormat.SINGLES,
-    numCourts: 2, pointsOption: 21, bestOf: 3, isPublic: true, playerLimit: 20
+    numCourts: 2, isPublic: true, playerLimit: 32
   });
 
   useEffect(() => { loadData(); }, []);
@@ -34,18 +34,19 @@ const Tournaments: React.FC<{ user: User }> = ({ user }) => {
 
   const handleCreate = async () => {
     if (user.credits < 200) {
-      setError("Insufficient credits! Request 200 credits from SuperAdmin.");
+      setError("Insufficient credits! Cost: 200 Credits.");
       return;
     }
     
     setIsCreating(true);
     try {
-      const id = await store.addTournament({
+      await store.addTournament({
         ...newTourney,
         organizerId: user.id,
         status: 'UPCOMING',
         participants: [],
         rankingCriteria: ['points', 'won'],
+        scorerPin: '0000'
       } as any);
       setShowCreate(false);
       await loadData();
@@ -58,7 +59,7 @@ const Tournaments: React.FC<{ user: User }> = ({ user }) => {
 
   const handleRequestCredits = async () => {
     await store.requestCredits(user.id, user.username, 200);
-    alert("Credit request sent to SuperAdmin!");
+    alert("Credit request sent!");
   };
 
   if (selectedTournament) {
@@ -67,7 +68,6 @@ const Tournaments: React.FC<{ user: User }> = ({ user }) => {
 
   return (
     <div className="space-y-8 animate-in fade-in duration-500">
-      {/* Search Header */}
       <div className="flex flex-col md:flex-row gap-4 items-center justify-between">
         <div className="relative w-full md:w-96">
           <input 
@@ -93,7 +93,7 @@ const Tournaments: React.FC<{ user: User }> = ({ user }) => {
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[200] flex items-center justify-center p-4">
           <div className="bg-white rounded-[2.5rem] w-full max-w-2xl p-8 md:p-12 shadow-2xl overflow-y-auto max-h-[90vh]">
             <div className="flex justify-between items-center mb-8">
-              <h4 className="text-3xl font-black text-slate-800 italic uppercase tracking-tighter">Arena Config</h4>
+              <h4 className="text-3xl font-black text-slate-800 italic uppercase tracking-tighter">New Arena</h4>
               <button onClick={() => setShowCreate(false)} className="text-slate-300 hover:text-slate-500">
                 <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
               </button>
@@ -109,29 +109,11 @@ const Tournaments: React.FC<{ user: User }> = ({ user }) => {
             )}
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <Input label="Name" value={newTourney.name} onChange={v => setNewTourney({...newTourney, name: v})} />
+              <Input label="Tournament Name" value={newTourney.name} onChange={v => setNewTourney({...newTourney, name: v})} />
               <Input label="Venue" value={newTourney.venue} onChange={v => setNewTourney({...newTourney, venue: v})} />
               <Input label="Start Date" type="date" value={newTourney.startDate} onChange={v => setNewTourney({...newTourney, startDate: v})} />
               <Input label="End Date" type="date" value={newTourney.endDate} onChange={v => setNewTourney({...newTourney, endDate: v})} />
-              
-              <div className="space-y-1">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Scoring Style</label>
-                <div className="flex gap-2">
-                  <select 
-                    className="flex-1 p-3 bg-slate-50 rounded-xl font-bold border-2 border-slate-50 focus:border-indigo-500 outline-none"
-                    value={newTourney.pointsOption} onChange={e => setNewTourney({...newTourney, pointsOption: parseInt(e.target.value)})}
-                  >
-                    {[11, 15, 21, 25, 30].map(v => <option key={v} value={v}>{v} Pts</option>)}
-                  </select>
-                  <select 
-                    className="flex-1 p-3 bg-slate-50 rounded-xl font-bold border-2 border-slate-50 focus:border-indigo-500 outline-none"
-                    value={newTourney.bestOf} onChange={e => setNewTourney({...newTourney, bestOf: parseInt(e.target.value)})}
-                  >
-                    {[1, 3, 5].map(v => <option key={v} value={v}>Best of {v}</option>)}
-                  </select>
-                </div>
-              </div>
-
+              <Input label="Player Limit" type="number" value={newTourney.playerLimit} onChange={v => setNewTourney({...newTourney, playerLimit: parseInt(v)})} />
               <div className="space-y-1">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Type & Format</label>
                 <div className="flex gap-2">
@@ -157,20 +139,15 @@ const Tournaments: React.FC<{ user: User }> = ({ user }) => {
               onClick={handleCreate} disabled={isCreating}
               className="w-full bg-indigo-600 text-white font-black py-5 rounded-3xl mt-10 hover:bg-indigo-700 transition-all shadow-xl shadow-indigo-100 uppercase tracking-widest text-sm"
             >
-              {isCreating ? 'Synchronizing Arena...' : 'Launch Tournament'}
+              {isCreating ? 'Synchronizing Arena...' : 'Launch Tournament (200 Credits)'}
             </button>
           </div>
         </div>
       )}
 
-      {/* Grid of Tournaments */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
         {tournaments.map(t => (
-          <div 
-            key={t.id} 
-            onClick={() => setSelectedTournament(t)}
-            className="bg-white p-8 rounded-[2rem] border border-slate-100 shadow-sm hover:shadow-2xl transition-all cursor-pointer group"
-          >
+          <div key={t.id} onClick={() => setSelectedTournament(t)} className="bg-white p-8 rounded-[2rem] border border-slate-100 shadow-sm hover:shadow-2xl transition-all cursor-pointer group">
             <div className="flex justify-between items-start mb-6">
                <span className="text-[10px] font-black uppercase tracking-widest text-indigo-500 bg-indigo-50 px-3 py-1 rounded-lg">ID: {t.uniqueId}</span>
                <span className={`px-3 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest ${t.isLocked ? 'bg-slate-900 text-white' : 'bg-green-100 text-green-600'}`}>
