@@ -2,7 +2,8 @@
 import React, { useState, useEffect } from 'react';
 import { Trophy, Calendar, MapPin, Plus, Loader2, Search, Hash, Send, Crosshair } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
-import { supabase, dbService } from '../services/supabase';
+import { db, dbService } from '../services/firebase';
+import { collection, query, orderBy, onSnapshot, getDocs, where } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js';
 import { Tournament, Profile } from '../types';
 
 interface TournamentsPageProps {
@@ -25,25 +26,17 @@ const TournamentsPage: React.FC<TournamentsPageProps> = ({ profile }) => {
   const navigate = useNavigate();
 
   useEffect(() => {
-    if (!supabase) return;
-
-    const fetchTournaments = async () => {
-      const { data } = await supabase
-        .from('tournaments')
-        .select('*')
-        .order('created_at', { ascending: false });
-      
-      if (data) setTournaments(data as Tournament[]);
+    const q = query(collection(db, "tournaments"), orderBy("created_at", "desc"));
+    const unsubscribe = onSnapshot(q, (snap) => {
+      const tourneyData = snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Tournament));
+      setTournaments(tourneyData);
       setLoading(false);
-    };
+    }, (err) => {
+      console.error("Fetch Tournaments Error:", err);
+      setLoading(false);
+    });
 
-    fetchTournaments();
-
-    const channel = supabase.channel('tournaments-feed')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'tournaments' }, fetchTournaments)
-      .subscribe();
-
-    return () => { supabase.removeChannel(channel); };
+    return () => unsubscribe();
   }, []);
 
   const handleLocateMe = () => {
@@ -59,15 +52,12 @@ const TournamentsPage: React.FC<TournamentsPageProps> = ({ profile }) => {
   };
 
   const handleSearchById = async () => {
-    if (!searchId || !supabase) return;
-    const { data } = await supabase
-      .from('tournaments')
-      .select('*')
-      .eq('share_id', searchId.toUpperCase())
-      .single();
+    if (!searchId) return;
+    const q = query(collection(db, "tournaments"), where("share_id", "==", searchId.toUpperCase()));
+    const snap = await getDocs(q);
     
-    if (data) {
-      navigate(`/tournament/${data.id}`);
+    if (!snap.empty) {
+      navigate(`/tournament/${snap.docs[0].id}`);
     } else {
       alert("Tournament Node not found in cluster.");
     }
@@ -80,7 +70,7 @@ const TournamentsPage: React.FC<TournamentsPageProps> = ({ profile }) => {
       return;
     }
 
-    if (!confirm("200 credits will be deducted. Proceed?")) return;
+    if (!confirm("200 credits will be deducted from your account. Proceed?")) return;
 
     try {
       const tournament = await dbService.tournaments.create(

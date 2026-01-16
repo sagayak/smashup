@@ -1,7 +1,8 @@
 
 import React, { useState, useEffect } from 'react';
-import { CreditCard, History, BadgeCheck, Database, Cloud } from 'lucide-react';
-import { supabase, dbService } from '../services/supabase';
+import { CreditCard, History, BadgeCheck, Cloud, Zap } from 'lucide-react';
+import { db, dbService } from '../services/firebase';
+import { collection, query, where, orderBy, limit, onSnapshot } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js';
 import { Profile, CreditLog } from '../types';
 
 interface ProfilePageProps {
@@ -13,27 +14,23 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ profile }) => {
   const [loadingLogs, setLoadingLogs] = useState(true);
 
   useEffect(() => {
-    if (!supabase) return;
-
-    const fetchLogs = async () => {
-      const { data } = await supabase
-        .from('credit_logs')
-        .select('*')
-        .eq('user_id', profile.id)
-        .order('created_at', { ascending: false })
-        .limit(10);
-      
-      if (data) setLogs(data as CreditLog[]);
+    const q = query(
+      collection(db, "credit_logs"), 
+      where("user_id", "==", profile.id),
+      orderBy("created_at", "desc"),
+      limit(10)
+    );
+    
+    const unsubscribe = onSnapshot(q, (snap) => {
+      const logData = snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as CreditLog));
+      setLogs(logData);
       setLoadingLogs(false);
-    };
+    }, (err) => {
+      console.error("Fetch logs error:", err);
+      setLoadingLogs(false);
+    });
 
-    fetchLogs();
-
-    const channel = supabase.channel(`logs-${profile.id}`)
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'credit_logs', filter: `user_id=eq.${profile.id}` }, fetchLogs)
-      .subscribe();
-
-    return () => { supabase.removeChannel(channel); };
+    return () => unsubscribe();
   }, [profile.id]);
 
   const simulateAddCredits = async () => {
@@ -44,7 +41,7 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ profile }) => {
         "Simulated credit top-up", 
         'add'
       );
-      alert("Added 500 simulated credits via Supabase RPC!");
+      alert("Added 500 simulated credits via Cloud Transaction!");
     } catch (e: any) {
       alert(e.message);
     }
@@ -88,13 +85,13 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ profile }) => {
 
           <div className="bg-white p-6 rounded-[2.5rem] border border-gray-100 shadow-sm space-y-4">
              <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2">
-                <Database className="w-5 h-5 text-green-600" />
-                Postgres Node Status
+                <Cloud className="w-5 h-5 text-green-600" />
+                Arena Cloud Node
              </h3>
              <div className="p-4 bg-gray-50 rounded-2xl border border-gray-100">
                 <div className="flex items-center justify-between mb-2">
                    <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Protocol</span>
-                   <span className="text-[10px] font-black text-green-600 uppercase">Supabase SQL</span>
+                   <span className="text-[10px] font-black text-green-600 uppercase">Firebase NoSQL</span>
                 </div>
                 <div className="flex items-center gap-3">
                    <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
@@ -108,12 +105,16 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ profile }) => {
           <div className="flex items-center justify-between">
              <h3 className="text-2xl font-black italic uppercase tracking-tighter text-gray-900 flex items-center gap-3">
                 <History className="w-6 h-6 text-green-600" />
-                Arena Activity (SQL Log)
+                Arena Activity (Cloud Log)
              </h3>
           </div>
 
           <div className="bg-white rounded-[3.5rem] border border-gray-100 shadow-sm overflow-hidden p-8">
-            {logs.length === 0 ? (
+            {loadingLogs ? (
+              <div className="flex justify-center p-12">
+                 <Zap className="w-8 h-8 animate-spin text-green-600" />
+              </div>
+            ) : logs.length === 0 ? (
               <div className="text-center py-12">
                 <Cloud className="w-12 h-12 text-gray-200 mx-auto mb-4" />
                 <p className="text-gray-400 font-bold uppercase tracking-widest text-xs">No activity recorded on this node</p>

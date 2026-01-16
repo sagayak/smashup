@@ -1,8 +1,9 @@
 
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Trophy, Plus, Minus, CheckCircle, ChevronLeft, Zap } from 'lucide-react';
-import { supabase, dbService } from '../services/supabase';
+import { Plus, Minus, CheckCircle, ChevronLeft, Zap } from 'lucide-react';
+import { db, dbService } from '../services/firebase';
+import { doc, onSnapshot, getDoc } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js';
 import { Match, Profile } from '../types';
 
 interface LiveScoringPageProps {
@@ -19,25 +20,23 @@ const LiveScoringPage: React.FC<LiveScoringPageProps> = ({ profile }) => {
   useEffect(() => {
     if (!matchId) return;
 
-    const fetchMatch = async () => {
-      const { data } = await supabase.from('matches').select('*').eq('id', matchId).single();
-      if (data) {
-        setMatch(data as Match);
-        const { data: tourney } = await supabase.from('tournaments').select('organizer_id').eq('id', data.tournament_id).single();
-        setIsScorer(profile.id === tourney?.organizer_id || profile.role === 'superadmin' || profile.role === 'scorer');
+    const matchRef = doc(db, "matches", matchId);
+    const unsubscribe = onSnapshot(matchRef, async (snap) => {
+      if (snap.exists()) {
+        const data = { id: snap.id, ...snap.data() } as Match;
+        setMatch(data);
+        
+        // Check if current user has scorer permission for this tournament
+        const tourneySnap = await getDoc(doc(db, "tournaments", data.tournament_id));
+        if (tourneySnap.exists()) {
+          const tData = tourneySnap.data();
+          setIsScorer(profile.id === tData.organizer_id || profile.role === 'superadmin' || profile.role === 'scorer');
+        }
       }
       setLoading(false);
-    };
+    });
 
-    fetchMatch();
-
-    const channel = supabase.channel(`match-${matchId}`)
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'matches', filter: `id=eq.${matchId}` }, (payload) => {
-        setMatch(payload.new as Match);
-      })
-      .subscribe();
-
-    return () => { supabase.removeChannel(channel); };
+    return () => unsubscribe();
   }, [matchId, profile]);
 
   const updateScore = async (team: 1 | 2, delta: number) => {
@@ -53,7 +52,7 @@ const LiveScoringPage: React.FC<LiveScoringPageProps> = ({ profile }) => {
       alert("Matches cannot end in a draw in this arena.");
       return;
     }
-    if (!confirm("Finalize match results? Points will be updated atomically.")) return;
+    if (!confirm("Finalize match results? Points will be updated atomically via transaction.")) return;
     
     try {
       await dbService.matches.complete(match);
@@ -80,7 +79,7 @@ const LiveScoringPage: React.FC<LiveScoringPageProps> = ({ profile }) => {
         </button>
         <div className="flex items-center gap-2 bg-red-50 px-4 py-1.5 rounded-full border border-red-100">
           <span className="w-2 h-2 bg-red-500 rounded-full animate-ping" />
-          <span className="text-red-600 text-[10px] font-black uppercase tracking-widest">Postgres Live</span>
+          <span className="text-red-600 text-[10px] font-black uppercase tracking-widest">Arena Live Sync</span>
         </div>
       </div>
 

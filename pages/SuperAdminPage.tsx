@@ -1,7 +1,8 @@
 
 import React, { useState, useEffect } from 'react';
-import { Shield, Search, ChevronRight, User, Trash2, X, Zap } from 'lucide-react';
-import { supabase, dbService } from '../services/supabase';
+import { Shield, Search, ChevronRight, X, Zap } from 'lucide-react';
+import { db, dbService } from '../services/firebase';
+import { collection, query, orderBy, onSnapshot } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js';
 import { Profile } from '../types';
 
 interface SuperAdminPageProps {
@@ -15,16 +16,15 @@ const SuperAdminPage: React.FC<SuperAdminPageProps> = ({ profile }) => {
   const [selectedUser, setSelectedUser] = useState<Profile | null>(null);
   const [creditAmount, setCreditAmount] = useState(0);
 
-  const fetchUsers = async () => {
-    const { data } = await supabase.from('profiles').select('*').order('created_at', { ascending: false });
-    if (data) setUsers(data as Profile[]);
-    setLoading(false);
-  };
-
   useEffect(() => {
-    fetchUsers();
-    const sub = supabase.channel('profiles-admin').on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, fetchUsers).subscribe();
-    return () => { supabase.removeChannel(sub); };
+    const q = query(collection(db, "profiles"), orderBy("created_at", "desc"));
+    const unsubscribe = onSnapshot(q, (snap) => {
+      const profileData = snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Profile));
+      setUsers(profileData);
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
   }, []);
 
   const handleUpdateCredits = async (action: 'add' | 'deduct') => {
@@ -33,7 +33,7 @@ const SuperAdminPage: React.FC<SuperAdminPageProps> = ({ profile }) => {
     
     try {
       await dbService.profiles.updateCredits(selectedUser.id, delta, `SuperAdmin Override: ${action}`, action);
-      alert(`Balance Synced on Node.`);
+      alert(`Balance Synced on Cloud Node.`);
       setCreditAmount(0);
       setSelectedUser(null);
     } catch (e: any) {
@@ -51,7 +51,7 @@ const SuperAdminPage: React.FC<SuperAdminPageProps> = ({ profile }) => {
       <div className="bg-gray-900 rounded-[3rem] p-12 text-white relative overflow-hidden border border-gray-800 shadow-2xl">
         <h1 className="text-5xl font-black italic uppercase tracking-tighter leading-none mb-2">Central Node</h1>
         <p className="text-gray-400 mt-2 font-black uppercase tracking-widest text-[10px] flex items-center gap-2">
-           <Zap className="w-3 h-3 text-green-500" /> Authorized SuperAdmin Access Only
+           <Zap className="w-3 h-3 text-green-500" /> Authorized Firebase Admin Access
         </p>
       </div>
 
@@ -114,7 +114,7 @@ const SuperAdminPage: React.FC<SuperAdminPageProps> = ({ profile }) => {
                   <button onClick={() => handleUpdateCredits('add')} className="py-5 bg-green-600 text-white rounded-2xl font-black uppercase italic tracking-tighter shadow-xl shadow-green-100 hover:bg-green-700">Grant</button>
                 </div>
                 <div className="pt-6 border-t border-gray-50">
-                  <p className="text-[10px] text-gray-400 font-black uppercase text-center tracking-widest mb-4 italic leading-relaxed">Changes are final and logged to Postgres Audit Hub.</p>
+                  <p className="text-[10px] text-gray-400 font-black uppercase text-center tracking-widest mb-4 italic leading-relaxed">Changes are atomic and logged to Firebase Transaction Audit.</p>
                 </div>
               </div>
             </div>

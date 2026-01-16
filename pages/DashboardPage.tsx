@@ -1,8 +1,9 @@
 
 import React, { useState, useEffect } from 'react';
-import { Trophy, Users, Calendar, ArrowRight, Play, Star, PlayCircle, Clock, ChevronRight } from 'lucide-react';
+import { Trophy, Play, Star, PlayCircle, Clock, ChevronRight, Zap } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { supabase } from '../services/supabase';
+import { db } from '../services/firebase';
+import { collection, query, where, limit, onSnapshot, getCountFromServer } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js';
 import { Tournament, Match, Profile } from '../types';
 
 interface DashboardPageProps {
@@ -16,32 +17,36 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ profile }) => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!supabase) return;
+    // Featured Tournaments Listener
+    const tQuery = query(collection(db, "tournaments"), where("status", "==", "published"), limit(3));
+    const unsubscribeTourneys = onSnapshot(tQuery, (snap) => {
+      const tourneys = snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Tournament));
+      setFeaturedTournaments(tourneys);
+    });
 
-    const fetchData = async () => {
-      const { data: tourneys } = await supabase.from('tournaments').select('*').eq('status', 'published').limit(3);
-      const { data: matches } = await supabase.from('matches').select('*').eq('status', 'live');
-      
-      if (tourneys) setFeaturedTournaments(tourneys as Tournament[]);
-      if (matches) setRecentLiveMatches(matches as Match[]);
-      
-      const { count: tCount } = await supabase.from('tournaments').select('*', { count: 'exact', head: true });
-      const { count: mCount } = await supabase.from('matches').select('*', { count: 'exact', head: true }).eq('status', 'live');
-      
-      setStats({
-        totalTournaments: tCount || 0,
-        liveMatches: mCount || 0
-      });
+    // Live Matches Listener
+    const mQuery = query(collection(db, "matches"), where("status", "==", "live"));
+    const unsubscribeMatches = onSnapshot(mQuery, (snap) => {
+      const matches = snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Match));
+      setRecentLiveMatches(matches);
       setLoading(false);
+    });
+
+    // Stats Logic (Server-side counts)
+    const fetchCounts = async () => {
+      const tSnap = await getCountFromServer(collection(db, "tournaments"));
+      const mSnap = await getCountFromServer(query(collection(db, "matches"), where("status", "==", "live")));
+      setStats({
+        totalTournaments: tSnap.data().count,
+        liveMatches: mSnap.data().count
+      });
     };
+    fetchCounts();
 
-    fetchData();
-
-    const matchSub = supabase.channel('live-matches')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'matches' }, fetchData)
-      .subscribe();
-
-    return () => { supabase.removeChannel(matchSub); };
+    return () => {
+      unsubscribeTourneys();
+      unsubscribeMatches();
+    };
   }, []);
 
   const formatTime = (dateStr: string) => {
@@ -53,7 +58,9 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ profile }) => {
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
         <div>
           <h1 className="text-4xl font-black text-gray-900 italic tracking-tighter uppercase">The Court is Waiting</h1>
-          <p className="text-gray-500 mt-1 font-medium">Postgres real-time sync active.</p>
+          <p className="text-gray-500 mt-1 font-medium flex items-center gap-2">
+            <Zap className="w-4 h-4 text-green-500" /> Firebase Cloud Sync Active.
+          </p>
         </div>
         <Link to="/tournaments" className="bg-green-600 hover:bg-green-700 text-white px-8 py-3 rounded-2xl font-black italic uppercase tracking-tighter shadow-xl flex items-center gap-2 transition-all active:scale-95">
           <Trophy className="w-5 h-5" /> Find Tournaments
@@ -62,9 +69,9 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ profile }) => {
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
         {[
-          { label: 'Active Tournaments', value: stats.totalTournaments, icon: Trophy, color: 'text-blue-600', bg: 'bg-blue-50' },
-          { label: 'Matches Live Now', value: stats.liveMatches, icon: Play, color: 'text-red-600', bg: 'bg-red-50' },
-          { label: 'Total Credits', value: profile.credits, icon: Star, color: 'text-green-600', bg: 'bg-green-50' },
+          { label: 'Active Arenas', value: stats.totalTournaments, icon: Trophy, color: 'text-blue-600', bg: 'bg-blue-50' },
+          { label: 'Live Battles', value: stats.liveMatches, icon: Play, color: 'text-red-600', bg: 'bg-red-50' },
+          { label: 'Global Credits', value: profile.credits, icon: Star, color: 'text-green-600', bg: 'bg-green-50' },
         ].map((item, idx) => (
           <div key={idx} className="bg-white p-8 rounded-[2.5rem] border border-gray-100 shadow-sm hover:shadow-xl transition-all group">
             <div className="flex items-center gap-6">
@@ -100,12 +107,12 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ profile }) => {
                   <div className="flex items-center justify-between mt-2">
                     <div className="flex flex-col items-center flex-1">
                       <div className="w-16 h-16 bg-gray-900 text-white rounded-[1.5rem] mb-3 flex items-center justify-center font-black text-2xl italic shadow-lg">{match.team1_name?.charAt(0)}</div>
-                      <span className="text-sm font-black text-gray-900 uppercase tracking-tighter italic">{match.team1_name}</span>
+                      <span className="text-sm font-black text-gray-900 uppercase tracking-tighter italic text-center px-2">{match.team1_name}</span>
                     </div>
                     <div className="text-5xl font-black text-green-600 italic tracking-tighter">{match.score1} - {match.score2}</div>
                     <div className="flex flex-col items-center flex-1">
                       <div className="w-16 h-16 bg-green-600 text-white rounded-[1.5rem] mb-3 flex items-center justify-center font-black text-2xl italic shadow-lg">{match.team2_name?.charAt(0)}</div>
-                      <span className="text-sm font-black text-gray-900 uppercase tracking-tighter italic">{match.team2_name}</span>
+                      <span className="text-sm font-black text-gray-900 uppercase tracking-tighter italic text-center px-2">{match.team2_name}</span>
                     </div>
                   </div>
                 </Link>
@@ -124,8 +131,8 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ profile }) => {
                 </div>
                 <div className="flex-1">
                   <h4 className="font-black text-xl text-gray-900 uppercase tracking-tighter italic">{tournament.name}</h4>
-                  <div className="flex gap-4 mt-2 text-[11px] text-gray-500 font-bold uppercase">
-                    <Calendar className="w-3.5 h-3.5 text-green-600" /> {new Date(tournament.start_date!).toLocaleDateString()}
+                  <div className="flex gap-4 mt-2 text-[11px] text-gray-500 font-bold uppercase italic">
+                    <Zap className="w-3.5 h-3.5 text-green-600" /> Start: {new Date(tournament.start_date!).toLocaleDateString()}
                   </div>
                 </div>
                 <ChevronRight className="w-6 h-6 text-gray-300" />

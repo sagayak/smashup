@@ -1,11 +1,11 @@
 
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { dbService } from '../services/supabase';
-import { Trophy, Lock, Mail, ShieldCheck, AlertTriangle } from 'lucide-react';
+import { dbService } from '../services/firebase';
+import { Trophy, Lock, User, AlertTriangle } from 'lucide-react';
 
 const LoginPage: React.FC = () => {
-  const [email, setEmail] = useState('');
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [pin, setPin] = useState('');
   const [showPin, setShowPin] = useState(false);
@@ -19,7 +19,7 @@ const LoginPage: React.FC = () => {
     setError(null);
 
     try {
-      const profile = await dbService.auth.signIn(email, password);
+      const profile = await dbService.auth.signIn(username, password);
 
       // SuperAdmin Check
       if (profile.role === 'superadmin' && !showPin) {
@@ -35,18 +35,6 @@ const LoginPage: React.FC = () => {
       navigate('/');
     } catch (err: any) {
       setError(err.message || "Authentication failed. Check your credentials.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleGoogleLogin = async () => {
-    try {
-      setLoading(true);
-      await dbService.auth.signInWithGoogle();
-      // Redirect happens automatically
-    } catch (err: any) {
-      setError(err.message || "Google Login failed.");
       setLoading(false);
     }
   };
@@ -62,7 +50,7 @@ const LoginPage: React.FC = () => {
             <div className="bg-green-600 p-5 rounded-[2rem] mb-5 shadow-xl shadow-green-100/20">
               <Trophy className="w-12 h-12 text-white" />
             </div>
-            <h1 className="text-4xl font-black text-gray-900 italic uppercase tracking-tighter leading-tight">ShuttleUp Login</h1>
+            <h1 className="text-4xl font-black text-gray-900 italic uppercase tracking-tighter leading-tight">Arena Login</h1>
           </div>
 
           {error && (
@@ -74,32 +62,18 @@ const LoginPage: React.FC = () => {
             </div>
           )}
 
-          <button
-            onClick={handleGoogleLogin}
-            disabled={loading}
-            className="w-full flex items-center justify-center gap-3 bg-white border-2 border-gray-100 py-4 rounded-2xl mb-6 hover:bg-gray-50 transition-all active:scale-95 disabled:opacity-50"
-          >
-            <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="Google" className="w-6 h-6" />
-            <span className="font-black italic uppercase tracking-tighter text-gray-700 text-sm">Continue with Google</span>
-          </button>
-
-          <div className="relative mb-6">
-            <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-gray-100"></div></div>
-            <div className="relative flex justify-center text-xs uppercase"><span className="bg-white px-4 text-gray-400 font-bold tracking-widest">or use email</span></div>
-          </div>
-
           <form onSubmit={handleLogin} className="space-y-4">
             <div>
-              <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2 ml-1">Real Email Address</label>
+              <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2 ml-1">Username</label>
               <div className="relative">
-                <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-300" />
+                <User className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-300" />
                 <input
-                  type="email"
+                  type="text"
                   required
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
                   className="w-full pl-12 pr-4 py-4 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-4 focus:ring-green-500/10 outline-none font-bold"
-                  placeholder="pro@shuttleup.com"
+                  placeholder="smash_king"
                 />
               </div>
             </div>
@@ -139,15 +113,15 @@ const LoginPage: React.FC = () => {
               disabled={loading}
               className="w-full bg-gray-900 hover:bg-black text-white font-black italic uppercase tracking-tighter text-xl py-5 rounded-[2rem] shadow-2xl transition-all active:scale-95 disabled:opacity-50 mt-2"
             >
-              {loading ? "Syncing..." : "Sign In"}
+              {loading ? "Verifying..." : "Enter Arena"}
             </button>
           </form>
 
           <div className="mt-8 pt-8 border-t border-gray-50 text-center">
             <p className="text-gray-400 font-bold text-[10px] uppercase tracking-widest leading-loose">
-              Need a new profile?{' '}
+              New to ShuttleUp?{' '}
               <Link to="/register" className="text-green-600 font-black hover:underline underline-offset-4">
-                Create Account
+                Join Now
               </Link>
             </p>
           </div>

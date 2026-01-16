@@ -10,11 +10,7 @@ import {
   query, 
   where, 
   updateDoc, 
-  onSnapshot, 
   runTransaction,
-  orderBy,
-  limit,
-  deleteDoc,
   increment
 } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js';
 import { 
@@ -23,16 +19,15 @@ import {
   signInWithEmailAndPassword, 
   signOut
 } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js';
-import { Profile, Tournament, Team, Match, CreditLog, TournamentParticipant, TeamMember } from '../types';
+import { Profile, Tournament, Team, Match } from '../types';
 
-// Production-ready configuration using Environment Variables
 const firebaseConfig = {
-  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY || "AIzaSyBceqpT8fKseYI2MKapeFb7XN80YoOdCFU",
-  authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN || "sanbadm-c0577.firebaseapp.com",
-  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || "sanbadm-c0577",
-  storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || "sanbadm-c0577.firebasestorage.app",
-  messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID || "635145173370",
-  appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID || "1:635145173370:web:f9be48df68592ed8bdfec3",
+  apiKey: "AIzaSyBceqpT8fKseYI2MKapeFb7XN80YoOdCFU",
+  authDomain: "sanbadm-c0577.firebaseapp.com",
+  projectId: "sanbadm-c0577",
+  storageBucket: "sanbadm-c0577.firebasestorage.app",
+  messagingSenderId: "635145173370",
+  appId: "1:635145173370:web:f9be48df68592ed8bdfec3",
   measurementId: "G-LN2BQ1X1CG"
 };
 
@@ -46,6 +41,8 @@ export const dbService = {
   auth: {
     signUp: async (username: string, fullName: string, role: string, password?: string) => {
       const email = mapUsernameToEmail(username);
+      
+      // Username uniqueness check
       const q = query(collection(db, "profiles"), where("username", "==", username.toLowerCase()));
       const snap = await getDocs(q);
       if (!snap.empty) throw new Error("Username already taken in the Arena.");
@@ -67,6 +64,7 @@ export const dbService = {
       const email = mapUsernameToEmail(username);
       const userCred = await signInWithEmailAndPassword(auth, email, password || "shuttleup123");
       const profileSnap = await getDoc(doc(db, "profiles", userCred.user.uid));
+      if (!profileSnap.exists()) throw new Error("Arena profile missing.");
       return profileSnap.data() as Profile;
     },
     signOut: () => signOut(auth)
@@ -115,24 +113,24 @@ export const dbService = {
       await runTransaction(db, async (transaction) => {
         const profileRef = doc(db, "profiles", organizerId);
         const profileSnap = await transaction.get(profileRef);
-        if (!profileSnap.exists() || profileSnap.data().credits < 200) throw "Insufficient Credits (Min 200c required)";
+        if (!profileSnap.exists()) throw "Organizer node not found";
+        if (profileSnap.data().credits < 200) throw "Insufficient Arena Credits (200c required)";
         
         transaction.update(profileRef, { credits: increment(-200) });
         transaction.set(tRef, tournament);
+
+        // Initial credit log
+        const logRef = doc(collection(db, "credit_logs"));
+        transaction.set(logRef, {
+          id: logRef.id,
+          user_id: organizerId,
+          amount: -200,
+          action_type: 'deduct',
+          description: `Hosted Arena: ${tournament.name}`,
+          created_at: new Date().toISOString()
+        });
       });
       return tournament;
-    },
-    join: async (tournamentId: string, userId: string, fullName: string, username: string) => {
-        const pRef = doc(db, "tournament_participants", `${tournamentId}_${userId}`);
-        const participant: TournamentParticipant = {
-            id: pRef.id,
-            tournament_id: tournamentId,
-            user_id: userId,
-            status: 'approved',
-            full_name: fullName,
-            username: username
-        };
-        await setDoc(pRef, participant);
     }
   },
 
@@ -145,24 +143,10 @@ export const dbService = {
         name: name,
         points: 0,
         wins: 0,
-        losses: 0,
-        member_count: 0
+        losses: 0
       };
       await setDoc(teamRef, team);
       return team;
-    },
-    addMember: async (teamId: string, tournamentId: string, user: { id: string, full_name: string, username: string }) => {
-        const mRef = doc(db, "team_members", `${teamId}_${user.id}`);
-        const member: TeamMember = {
-            id: mRef.id,
-            team_id: teamId,
-            tournament_id: tournamentId,
-            user_id: user.id,
-            full_name: user.full_name,
-            username: user.username
-        };
-        await setDoc(mRef, member);
-        await updateDoc(doc(db, "teams", teamId), { member_count: increment(1) });
     }
   },
 

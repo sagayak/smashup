@@ -1,13 +1,12 @@
 
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { dbService } from '../services/supabase';
-import { Trophy, Mail, User, Lock, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { dbService } from '../services/firebase';
+import { Trophy, User, Lock, CheckCircle2, AlertTriangle, ShieldCheck } from 'lucide-react';
 import { UserRole } from '../types';
 
 const RegisterPage: React.FC = () => {
   const [formData, setFormData] = useState({
-    email: '',
     username: '',
     fullName: '',
     password: '',
@@ -24,28 +23,14 @@ const RegisterPage: React.FC = () => {
 
     try {
       await dbService.auth.signUp(
-        formData.email,
         formData.username,
         formData.fullName,
         formData.role,
         formData.password
       );
-      // Inform user to check email if verification is on, or just log in
-      alert("Registration initiated! Please check your email for verification (if enabled) and then log in.");
-      navigate('/login');
+      navigate('/');
     } catch (err: any) {
-      setError(err.message || "Registration failed. Username or email might be taken.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleGoogleLogin = async () => {
-    try {
-      setLoading(true);
-      await dbService.auth.signInWithGoogle();
-    } catch (err: any) {
-      setError(err.message);
+      setError(err.message || "Registration failed. Username might be taken.");
       setLoading(false);
     }
   };
@@ -59,7 +44,7 @@ const RegisterPage: React.FC = () => {
           </div>
           <h2 className="text-5xl font-black italic uppercase tracking-tighter mb-4 leading-none text-white">Join the<br/>Arena.</h2>
           <div className="space-y-4 mt-6">
-            {['Global Rankings', 'Live Tournament Sync', 'Atomic Credit System'].map(f => (
+            {['Global Rankings', 'Live Arena Sync', 'Simulated Credits'].map(f => (
               <div key={f} className="flex items-center gap-3">
                 <CheckCircle2 className="w-5 h-5 text-green-300" />
                 <span className="font-black italic uppercase tracking-tighter text-xs">{f}</span>
@@ -71,7 +56,7 @@ const RegisterPage: React.FC = () => {
         <div className="p-12 overflow-y-auto max-h-[90vh]">
           <div className="mb-8">
              <h3 className="text-2xl font-black italic uppercase tracking-tighter text-gray-900">Create Profile</h3>
-             <p className="text-gray-400 font-bold uppercase tracking-widest text-[10px] mt-1">Real emails required for Google sync.</p>
+             <p className="text-gray-400 font-bold uppercase tracking-widest text-[10px] mt-1">No email required. Remember your credentials.</p>
           </div>
 
           {error && (
@@ -81,45 +66,23 @@ const RegisterPage: React.FC = () => {
             </div>
           )}
 
-          <button
-            onClick={handleGoogleLogin}
-            disabled={loading}
-            className="w-full flex items-center justify-center gap-3 bg-white border-2 border-gray-100 py-4 rounded-2xl mb-6 hover:bg-gray-50 transition-all active:scale-95 shadow-sm"
-          >
-            <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="Google" className="w-6 h-6" />
-            <span className="font-black italic uppercase tracking-tighter text-gray-700">Continue with Google</span>
-          </button>
-
-          <div className="relative mb-8">
-            <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-gray-100"></div></div>
-            <div className="relative flex justify-center text-xs uppercase"><span className="bg-white px-4 text-gray-300 font-bold tracking-widest">or manual setup</span></div>
-          </div>
-
           <form onSubmit={handleRegister} className="space-y-4">
             <div>
-              <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2 ml-1">Real Email Address</label>
-              <input
-                type="email"
-                required
-                value={formData.email}
-                onChange={(e) => setFormData({...formData, email: e.target.value})}
-                className="w-full px-5 py-4 bg-gray-50 border border-gray-100 rounded-2xl outline-none font-bold"
-                placeholder="athlete@shuttleup.com"
-              />
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2 ml-1">Unique Username</label>
+              <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2 ml-1">Unique Username</label>
+              <div className="relative">
+                <User className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-300" />
                 <input
                   type="text"
                   required
                   value={formData.username}
-                  onChange={(e) => setFormData({...formData, username: e.target.value})}
-                  className="w-full px-5 py-4 bg-gray-50 border border-gray-100 rounded-2xl outline-none font-bold"
-                  placeholder="smash_king"
+                  onChange={(e) => setFormData({...formData, username: e.target.value.toLowerCase().replace(/\s/g, '')})}
+                  className="w-full pl-11 pr-5 py-4 bg-gray-50 border border-gray-100 rounded-2xl outline-none font-bold"
+                  placeholder="smash_pro"
                 />
               </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4">
               <div>
                 <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2 ml-1">Role Type</label>
                 <select
@@ -141,19 +104,23 @@ const RegisterPage: React.FC = () => {
                 value={formData.fullName}
                 onChange={(e) => setFormData({...formData, fullName: e.target.value})}
                 className="w-full px-5 py-4 bg-gray-50 border border-gray-100 rounded-2xl outline-none font-bold"
+                placeholder="John Doe"
               />
             </div>
 
             <div>
               <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2 ml-1">Secure Password</label>
-              <input
-                type="password"
-                required
-                value={formData.password}
-                onChange={(e) => setFormData({...formData, password: e.target.value})}
-                className="w-full px-5 py-4 bg-gray-50 border border-gray-100 rounded-2xl outline-none font-bold"
-                placeholder="••••••••"
-              />
+              <div className="relative">
+                <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-300" />
+                <input
+                  type="password"
+                  required
+                  value={formData.password}
+                  onChange={(e) => setFormData({...formData, password: e.target.value})}
+                  className="w-full pl-11 pr-5 py-4 bg-gray-50 border border-gray-100 rounded-2xl outline-none font-bold"
+                  placeholder="••••••••"
+                />
+              </div>
             </div>
 
             <button
@@ -161,7 +128,7 @@ const RegisterPage: React.FC = () => {
               disabled={loading}
               className="w-full bg-gray-900 hover:bg-black text-white font-black italic uppercase tracking-tighter text-xl py-5 rounded-[2rem] shadow-2xl transition-all active:scale-95 disabled:opacity-50 mt-4"
             >
-              {loading ? "Allocating..." : "Register Profile"}
+              {loading ? "Allocating Node..." : "Initialize Profile"}
             </button>
           </form>
 

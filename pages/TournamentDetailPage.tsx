@@ -1,8 +1,9 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { Trophy, PlusCircle, UserPlus, X, Check, MapPin, Hash, Play, Calendar, Download, ChevronLeft } from 'lucide-react';
-import { supabase, dbService } from '../services/supabase';
+import { Trophy, PlusCircle, UserPlus, X, Check, MapPin, Hash, Play, Calendar, Download, ChevronLeft, Zap } from 'lucide-react';
+import { db, dbService } from '../services/firebase';
+import { collection, query, where, onSnapshot, doc, orderBy } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js';
 import { Tournament, Team, Match, Profile } from '../types';
 
 declare const google: any;
@@ -29,30 +30,35 @@ const TournamentDetailPage: React.FC<TournamentDetailPageProps> = ({ profile }) 
   const navigate = useNavigate();
 
   useEffect(() => {
-    if (!id || !supabase) return;
+    if (!id) return;
 
-    const fetchData = async () => {
-      const { data: tourney } = await supabase.from('tournaments').select('*').eq('id', id).single();
-      if (tourney) setTournament(tourney as Tournament);
+    // Tournament Listener
+    const unsubTournament = onSnapshot(doc(db, "tournaments", id), (snap) => {
+      if (snap.exists()) {
+        setTournament({ id: snap.id, ...snap.data() } as Tournament);
+      }
+    });
 
-      const { data: teamData } = await supabase.from('teams').select('*').eq('tournament_id', id).order('points', { ascending: false });
-      if (teamData) setTeams(teamData as Team[]);
+    // Teams Listener
+    const teamsQuery = query(collection(db, "teams"), where("tournament_id", "==", id), orderBy("points", "desc"));
+    const unsubTeams = onSnapshot(teamsQuery, (snap) => {
+      const teamData = snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Team));
+      setTeams(teamData);
+    });
 
-      const { data: matchData } = await supabase.from('matches').select('*').eq('tournament_id', id).order('scheduled_at', { ascending: false });
-      if (matchData) setMatches(matchData as Match[]);
-
+    // Matches Listener
+    const matchesQuery = query(collection(db, "matches"), where("tournament_id", "==", id), orderBy("scheduled_at", "desc"));
+    const unsubMatches = onSnapshot(matchesQuery, (snap) => {
+      const matchData = snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Match));
+      setMatches(matchData);
       setLoading(false);
+    });
+
+    return () => {
+      unsubTournament();
+      unsubTeams();
+      unsubMatches();
     };
-
-    fetchData();
-
-    const tSub = supabase.channel(`tourney-${id}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'tournaments', filter: `id=eq.${id}` }, fetchData)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'teams', filter: `tournament_id=eq.${id}` }, fetchData)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'matches', filter: `tournament_id=eq.${id}` }, fetchData)
-      .subscribe();
-
-    return () => { supabase.removeChannel(tSub); };
   }, [id]);
 
   useEffect(() => {
@@ -67,19 +73,30 @@ const TournamentDetailPage: React.FC<TournamentDetailPageProps> = ({ profile }) 
 
   const handleCreateTeam = async (e: React.FormEvent) => {
     e.preventDefault();
-    await dbService.teams.create(id!, newTeamName);
-    setNewTeamName('');
-    setIsCreatingTeam(false);
+    if (!id) return;
+    try {
+      await dbService.teams.create(id, newTeamName);
+      setNewTeamName('');
+      setIsCreatingTeam(false);
+    } catch (err: any) {
+      alert(err.message || "Failed to create squad");
+    }
   };
 
   const handleScheduleMatch = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!id) return;
     const t1 = teams.find(t => t.id === scheduleData.team1Id);
     const t2 = teams.find(t => t.id === scheduleData.team2Id);
     if (!t1 || !t2 || t1.id === t2.id) return alert("Select two different squads.");
-    await dbService.matches.create(id!, t1, t2, new Date(scheduleData.time).toISOString());
-    setIsScheduling(false);
-    setScheduleData({ team1Id: '', team2Id: '', time: '' });
+    
+    try {
+      await dbService.matches.create(id, t1, t2, new Date(scheduleData.time).toISOString());
+      setIsScheduling(false);
+      setScheduleData({ team1Id: '', team2Id: '', time: '' });
+    } catch (err: any) {
+      alert(err.message || "Failed to schedule battle");
+    }
   };
 
   const exportToCSV = () => {
@@ -97,15 +114,21 @@ const TournamentDetailPage: React.FC<TournamentDetailPageProps> = ({ profile }) 
 
   const formatTime = (iso: string) => new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
 
-  if (loading) return <div className="p-20 text-center font-black animate-pulse uppercase">Syncing Arena...</div>;
-  if (!tournament) return <div className="p-20 text-center font-black">Arena not found.</div>;
+  if (loading) return (
+    <div className="p-20 flex flex-col items-center justify-center gap-4">
+      <Zap className="w-12 h-12 text-green-600 animate-bounce" />
+      <p className="font-black animate-pulse uppercase tracking-tighter italic">Syncing Arena Node...</p>
+    </div>
+  );
+
+  if (!tournament) return <div className="p-20 text-center font-black">Arena not found in cloud registry.</div>;
 
   return (
     <div className="space-y-10 animate-in fade-in duration-700 pb-20">
       <div className="bg-gray-900 rounded-[3rem] p-12 text-white relative overflow-hidden border-b-8 border-green-600 shadow-2xl">
           <div className="flex items-center gap-4 mb-4">
              <span className="bg-green-600 px-4 py-1 rounded-full text-[10px] font-black uppercase tracking-widest">ID: {tournament.share_id}</span>
-             <span className="text-[10px] font-black uppercase tracking-widest text-gray-500">POSTGRES NODE</span>
+             <span className="text-[10px] font-black uppercase tracking-widest text-gray-500">FIREBASE CLOUD NODE</span>
           </div>
           <h1 className="text-6xl font-black italic uppercase tracking-tighter leading-none">{tournament.name}</h1>
           <p className="text-gray-400 mt-4 max-w-xl font-medium">{tournament.description}</p>
@@ -228,7 +251,7 @@ const TournamentDetailPage: React.FC<TournamentDetailPageProps> = ({ profile }) 
                       </div>
                   </div>
                   <div className="bg-gray-50 p-8 rounded-[3rem] text-center italic text-gray-400">
-                    Use global admin panel to manage participants.
+                    Squad management is currently handled via the Squads interface.
                   </div>
               </div>
           )}
