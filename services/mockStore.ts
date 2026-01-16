@@ -11,7 +11,8 @@ import {
   where,
   increment,
   limit,
-  deleteDoc
+  deleteDoc,
+  orderBy
 } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js';
 import { 
   createUserWithEmailAndPassword, 
@@ -19,7 +20,7 @@ import {
   signOut
 } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js';
 import { db, auth } from './firebase.ts';
-import { User, Tournament, Match, UserRole, TournamentType, MatchFormat, MatchStatus, Team, CreditRequest, TournamentPlayer } from '../types.ts';
+import { User, Tournament, Match, UserRole, TournamentType, MatchFormat, MatchStatus, Team, CreditRequest, TournamentPlayer, MatchScore } from '../types.ts';
 
 const SHADOW_DOMAIN = "@smashpro.local";
 
@@ -46,7 +47,7 @@ class DataService {
         username: userData.username.toLowerCase().trim(),
         email: email,
         id: uid,
-        credits: isFirstUser ? 1000 : 0,
+        credits: 0, // No initial credits for anyone
         role: isFirstUser ? UserRole.SUPERADMIN : userData.role
       };
       await setDoc(doc(db, "users", uid), newUser);
@@ -96,29 +97,19 @@ class DataService {
 
   async adjustCredits(userId: string, amount: number, reason: string) {
     await updateDoc(doc(db, "users", userId), { credits: increment(amount) });
-    await addDoc(collection(db, "creditLogs"), { userId, amount, reason, timestamp: new Date().toISOString() });
-  }
-
-  async generateUniqueId() { return Math.random().toString(36).substring(2, 8).toUpperCase(); }
-
-  async addTournament(t: Omit<Tournament, 'id' | 'uniqueId'>): Promise<string> {
-    const userDoc = await getDoc(doc(db, "users", t.organizerId));
-    const userData = userDoc.data() as User;
-    if (userData.credits < 200) throw new Error("Insufficient credits. Cost: 200");
-    const uniqueId = await this.generateUniqueId();
-    const newT = { ...t, uniqueId, isLocked: false, scorerPin: '0000', playerPool: [] };
-    const docRef = await addDoc(collection(db, "tournaments"), newT);
-    await this.adjustCredits(t.organizerId, -200, `Created Tournament: ${t.name}`);
-    return docRef.id;
-  }
-
-  async updateTournamentPool(id: string, pool: TournamentPlayer[]) {
-    await updateDoc(doc(db, "tournaments", id), { playerPool: pool });
   }
 
   async getTournaments(): Promise<Tournament[]> {
     const snapshot = await getDocs(collection(db, "tournaments"));
     return snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Tournament));
+  }
+
+  async addTournament(data: Omit<Tournament, 'id' | 'uniqueId'>): Promise<Tournament> {
+    const uniqueId = `T-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
+    const docRef = await addDoc(collection(db, "tournaments"), { ...data, uniqueId, isLocked: false });
+    // Deduct credits
+    await this.adjustCredits(data.organizerId, -200, "Tournament Creation");
+    return { ...data, id: docRef.id, uniqueId, isLocked: false } as Tournament;
   }
 
   async searchTournamentById(uniqueId: string): Promise<Tournament | null> {
@@ -127,16 +118,17 @@ class DataService {
     return snapshot.empty ? null : ({ ...snapshot.docs[0].data(), id: snapshot.docs[0].id } as Tournament);
   }
 
-  async lockTournament(tournamentId: string) {
-    await updateDoc(doc(db, "tournaments", tournamentId), { isLocked: true, status: 'ONGOING' });
+  async updateTournamentPool(id: string, pool: TournamentPlayer[]) {
+    await updateDoc(doc(db, "tournaments", id), { playerPool: pool });
   }
 
-  async addTeam(team: Omit<Team, 'id'>) {
-    await addDoc(collection(db, "teams"), team);
+  async lockTournament(id: string) {
+    await updateDoc(doc(db, "tournaments", id), { isLocked: true });
   }
 
-  async deleteTeam(teamId: string) {
-    await deleteDoc(doc(db, "teams", teamId));
+  async addTeam(data: Omit<Team, 'id'>): Promise<Team> {
+    const docRef = await addDoc(collection(db, "teams"), data);
+    return { ...data, id: docRef.id } as Team;
   }
 
   async getTeams(tournamentId: string): Promise<Team[]> {
@@ -145,15 +137,13 @@ class DataService {
     return snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Team));
   }
 
-  async createMatch(match: Omit<Match, 'id'>) {
-    return await addDoc(collection(db, "matches"), match);
+  async deleteTeam(id: string) {
+    await deleteDoc(doc(db, "teams", id));
   }
 
-  async updateMatchScore(matchId: string, scores: number[][], participants: string[]) {
-    let p1Sets = 0; let p2Sets = 0;
-    scores.forEach(set => { if (set[0] > set[1]) p1Sets++; else if (set[1] > set[0]) p2Sets++; });
-    const winnerId = p1Sets > p2Sets ? participants[0] : participants[1];
-    await updateDoc(doc(db, "matches", matchId), { scores, winnerId, status: MatchStatus.COMPLETED });
+  async createMatch(data: Omit<Match, 'id'>): Promise<Match> {
+    const docRef = await addDoc(collection(db, "matches"), data);
+    return { ...data, id: docRef.id } as Match;
   }
 
   async getMatchesByTournament(tournamentId: string): Promise<Match[]> {
@@ -163,33 +153,75 @@ class DataService {
   }
 
   async getMatchesForUser(userId: string): Promise<Match[]> {
-    const teamsQuery = query(collection(db, "teams"), where("playerIds", "array-contains", userId));
-    const teamsSnap = await getDocs(teamsQuery);
-    const teamIds = teamsSnap.docs.map(doc => doc.id);
-    if (teamIds.length === 0) return [];
-    const snapshot = await getDocs(collection(db, "matches"));
-    const allMatches = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Match));
-    return allMatches.filter(m => m.participants.some(pId => teamIds.includes(pId)));
+    const q = query(collection(db, "matches"), where("participants", "array-contains", userId), orderBy("startTime", "desc"), limit(10));
+    try {
+      const snapshot = await getDocs(q);
+      return snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Match));
+    } catch (e) {
+      // Fallback if index isn't ready
+      const snapshot = await getDocs(collection(db, "matches"));
+      return snapshot.docs
+        .map(doc => ({ ...doc.data(), id: doc.id } as Match))
+        .filter(m => m.participants.includes(userId))
+        .sort((a,b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime())
+        .slice(0, 10);
+    }
   }
 
-  async calculateStandings(tournamentId: string) {
-    const matches = await this.getMatchesByTournament(tournamentId);
-    const teams = await this.getTeams(tournamentId);
-    const completedMatches = matches.filter(m => m.status === MatchStatus.COMPLETED);
-    const standingsMap = new Map();
-    teams.forEach(team => {
-      standingsMap.set(team.id, { id: team.id, name: team.name, played: 0, won: 0, lost: 0, points: 0 });
+  async updateMatchScore(matchId: string, scores: MatchScore[], participants: string[]) {
+    // Determine winner based on sets won
+    let p1Sets = 0;
+    let p2Sets = 0;
+    scores.forEach(s => {
+      if (s.s1 > s.s2) p1Sets++;
+      else if (s.s2 > s.s1) p2Sets++;
     });
-    completedMatches.forEach(m => {
-      const s1 = standingsMap.get(m.participants[0]);
-      const s2 = standingsMap.get(m.participants[1]);
-      if (s1 && s2) {
-        s1.played++; s2.played++;
-        if (m.winnerId === m.participants[0]) { s1.won++; s1.points += 2; s2.lost++; }
-        else { s2.won++; s2.points += 2; s1.lost++; }
+
+    const isComplete = p1Sets > scores.length / 2 || p2Sets > scores.length / 2;
+    const updateData: any = { scores };
+    
+    if (isComplete) {
+      updateData.status = MatchStatus.COMPLETED;
+      updateData.winnerId = p1Sets > p2Sets ? participants[0] : participants[1];
+    } else {
+      updateData.status = MatchStatus.LIVE;
+    }
+
+    await updateDoc(doc(db, "matches", matchId), updateData);
+  }
+
+  async calculateStandings(tournamentId: string): Promise<any[]> {
+    const teams = await this.getTeams(tournamentId);
+    const matches = await this.getMatchesByTournament(tournamentId);
+    
+    const standings = teams.map(t => ({
+      id: t.id,
+      name: t.name,
+      played: 0,
+      won: 0,
+      lost: 0,
+      points: 0
+    }));
+
+    matches.filter(m => m.status === MatchStatus.COMPLETED).forEach(m => {
+      const t1 = standings.find(s => s.id === m.participants[0]);
+      const t2 = standings.find(s => s.id === m.participants[1]);
+      if (t1 && t2) {
+        t1.played++;
+        t2.played++;
+        if (m.winnerId === t1.id) {
+          t1.won++;
+          t1.points += 2;
+          t2.lost++;
+        } else {
+          t2.won++;
+          t2.points += 2;
+          t1.lost++;
+        }
       }
     });
-    return Array.from(standingsMap.values()).sort((a: any, b: any) => b.points - a.points);
+
+    return standings.sort((a, b) => b.points - a.points || b.won - a.won);
   }
 }
 
