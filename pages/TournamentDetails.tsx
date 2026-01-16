@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { Tournament, Match, User, UserRole, MatchStatus, Team, TournamentPlayer, MatchScore } from '../types';
+import { Tournament, Match, User, UserRole, MatchStatus, Team, TournamentPlayer, MatchScore, JoinRequest, RankingCriterion } from '../types';
 import { store } from '../services/mockStore';
 
 interface Props {
@@ -10,12 +10,13 @@ interface Props {
 }
 
 const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, user, onBack }) => {
-  const [activeTab, setActiveTab] = useState<'matches' | 'players' | 'teams' | 'standings' | 'settings'>('matches');
+  const [activeTab, setActiveTab] = useState<'matches' | 'players' | 'teams' | 'standings' | 'settings' | 'requests'>('matches');
   const [tournament, setTournament] = useState<Tournament>(initialTournament);
   const [matches, setMatches] = useState<Match[]>([]);
   const [teams, setTeams] = useState<Team[]>([]);
   const [standings, setStandings] = useState<any[]>([]);
   const [allUsers, setAllUsers] = useState<User[]>([]);
+  const [joinRequests, setJoinRequests] = useState<JoinRequest[]>([]);
   const [isLocked, setIsLocked] = useState(initialTournament.isLocked);
   
   // Tie-up (Match) Selection State
@@ -40,7 +41,10 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
   const [bulkInput, setBulkInput] = useState('');
 
   // Match Config
-  const [matchConfig, setMatchConfig] = useState({ points: 21, bestOf: 3, court: 1 });
+  const [matchConfig, setMatchConfig] = useState({ points: 21, bestOf: 3, court: 1, umpire: '' });
+
+  // Settings State
+  const [tempPin, setTempPin] = useState(initialTournament.scorerPin || '0000');
 
   useEffect(() => { 
     if (initialTournament?.id) {
@@ -65,22 +69,25 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
   const loadData = async () => {
     if (!initialTournament?.id) return;
     try {
-      const [m, t, s, u, tourneys] = await Promise.all([
+      const [m, t, s, u, tourneys, jr] = await Promise.all([
         store.getMatchesByTournament(initialTournament.id),
         store.getTeams(initialTournament.id),
         store.calculateStandings(initialTournament.id),
         store.getAllUsers(),
-        store.getTournaments()
+        store.getTournaments(),
+        store.getJoinRequests(initialTournament.id)
       ]);
       const updatedTourney = tourneys.find(x => x.id === initialTournament.id);
       if (updatedTourney) {
         setTournament(updatedTourney);
         setIsLocked(updatedTourney.isLocked);
+        setTempPin(updatedTourney.scorerPin);
       }
       setMatches(m.sort((a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime()));
       setTeams(t);
       setStandings(s);
       setAllUsers(u);
+      setJoinRequests(jr);
     } catch (err) {
       console.error("Error loading tournament data:", err);
     }
@@ -161,33 +168,32 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
 
   const handleStartMatch = async () => {
     if (!tournament.isLocked) {
-      alert("Tournament must be LOCKED before initializing tie-ups. Please lock the tournament first.");
+      alert("Tournament must be LOCKED before initializing tie-ups.");
       return;
     }
-    const tId = tournament.id || initialTournament.id;
-    if (!tId) return alert("Tournament ID not found. Please refresh.");
-    if (!selectedT1 || !selectedT2) return alert("Please select two teams for the tie-up.");
+    if (!selectedT1 || !selectedT2) return alert("Please select two teams.");
     if (selectedT1 === selectedT2) return alert("A team cannot play against itself!");
     try {
       const setsCount = Math.max(1, Number(matchConfig.bestOf) || 3);
       const pointsPerSet = Number(matchConfig.points) || 21;
       const courtNumber = Number(matchConfig.court) || 1;
       const matchData: Omit<Match, 'id'> = {
-        tournamentId: tId,
+        tournamentId: tournament.id,
         participants: [selectedT1, selectedT2],
         scores: Array.from({ length: setsCount }, () => ({ s1: 0, s2: 0 })),
         status: MatchStatus.SCHEDULED,
         court: courtNumber,
         startTime: new Date().toISOString(),
         pointsOption: pointsPerSet,
-        bestOf: setsCount
+        bestOf: setsCount,
+        umpireName: matchConfig.umpire
       };
       await store.createMatch(matchData);
+      setMatchConfig({...matchConfig, umpire: ''});
       await loadData();
-      alert("Tie-up initialized successfully!");
+      alert("Tie-up initialized!");
     } catch (e: any) {
-      console.error("Match creation failed:", e);
-      alert(`Failed to initialize tie-up: ${e.message || 'Check connection or permissions'}`);
+      alert(`Failed to initialize: ${e.message}`);
     }
   };
 
@@ -210,19 +216,9 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
     if (!tournament.playerPool || tournament.playerPool.length === 0) {
       return alert("Roster is empty.");
     }
-    
     const headers = ["Name", "Username", "Registration Status"];
-    const rows = tournament.playerPool.map(p => [
-      p.name,
-      p.username || "N/A",
-      p.isRegistered ? "Registered" : "Guest"
-    ]);
-
-    const csvContent = [
-      headers.join(","),
-      ...rows.map(row => row.map(cell => `"${cell}"`).join(","))
-    ].join("\n");
-
+    const rows = tournament.playerPool.map(p => [p.name, p.username || "N/A", p.isRegistered ? "Registered" : "Guest"]);
+    const csvContent = [headers.join(","), ...rows.map(row => row.map(cell => `"${cell}"`).join(","))].join("\n");
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
@@ -231,6 +227,26 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+  };
+
+  const moveRankingCriterion = (index: number, direction: 'up' | 'down') => {
+    const newOrder = [...(tournament.rankingCriteriaOrder || [])];
+    const targetIndex = direction === 'up' ? index - 1 : index + 1;
+    if (targetIndex < 0 || targetIndex >= newOrder.length) return;
+    [newOrder[index], newOrder[targetIndex]] = [newOrder[targetIndex], newOrder[index]];
+    store.updateTournamentSettings(tournament.id, { rankingCriteriaOrder: newOrder }).then(loadData);
+  };
+
+  const handleUpdatePin = async () => {
+    if (tempPin.length !== 4) return alert("Pin must be 4 digits.");
+    await store.updateTournamentSettings(tournament.id, { scorerPin: tempPin });
+    alert("Scorer Pin updated!");
+    await loadData();
+  };
+
+  const handleResolveJoin = async (req: JoinRequest, approved: boolean) => {
+    await store.resolveJoinRequest(req.id, tournament.id, req.username, approved);
+    await loadData();
   };
 
   const filteredPool = tournament.playerPool?.filter(p => 
@@ -251,6 +267,11 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
           </div>
         </div>
         <div className="flex space-x-2">
+           {isOrganizer && joinRequests.length > 0 && (
+             <button onClick={() => setActiveTab('requests')} className="bg-rose-500 text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest animate-pulse">
+               {joinRequests.length} Pending Joins
+             </button>
+           )}
            {isOrganizer && !isLocked && (
              <button onClick={handleLock} className="bg-slate-900 text-white px-6 py-2 rounded-xl text-xs font-black uppercase tracking-widest shadow-xl active:scale-95 transition-all">Lock Tournament</button>
            )}
@@ -263,6 +284,7 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
         <TabButton active={activeTab === 'players'} onClick={() => setActiveTab('players')} label="Players" />
         <TabButton active={activeTab === 'teams'} onClick={() => setActiveTab('teams')} label="Teams" />
         <TabButton active={activeTab === 'standings'} onClick={() => setActiveTab('standings')} label="Standings" />
+        {isOrganizer && <TabButton active={activeTab === 'requests'} onClick={() => setActiveTab('requests')} label="Join Requests" />}
         {isOrganizer && <TabButton active={activeTab === 'settings'} onClick={() => setActiveTab('settings')} label="Settings" />}
       </div>
 
@@ -278,7 +300,7 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
                     </div>
                   </div>
                 )}
-                <h4 className="text-[10px] font-black text-indigo-200 uppercase tracking-widest mb-6">Create New Tie-up</h4>
+                <h4 className="text-[10px] font-black text-indigo-200 uppercase tracking-widest mb-6">Initialize Tie-up</h4>
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
                   <select 
                     value={selectedT1}
@@ -301,14 +323,18 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
                     onClick={handleStartMatch}
                     disabled={!selectedT1 || !selectedT2 || selectedT1 === selectedT2 || !isLocked}
                     className="bg-white text-indigo-600 p-4 rounded-2xl font-black text-xs uppercase shadow-lg active:scale-95 transition-all disabled:opacity-50"
-                  >Initialize Match</button>
+                  >Post Match</button>
                 </div>
-                <div className="flex flex-wrap gap-6 pt-4 border-t border-indigo-400">
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-6 pt-6 border-t border-indigo-400">
                   <ConfigItem label="Sets" value={matchConfig.bestOf} onChange={v => setMatchConfig({...matchConfig, bestOf: parseInt(v)})} options={[1,3,5]} />
                   <ConfigItem label="Points" value={matchConfig.points} onChange={v => setMatchConfig({...matchConfig, points: parseInt(v)})} options={[11,15,21,25,30]} />
                   <div className="flex items-center space-x-3">
-                    <span className="text-[10px] font-black uppercase tracking-widest text-indigo-200">Court No.</span>
-                    <input type="number" className="w-16 bg-indigo-500 rounded-lg p-2 text-center font-black outline-none border border-indigo-400 focus:border-white" value={matchConfig.court} onChange={e => setMatchConfig({...matchConfig, court: parseInt(e.target.value) || 1})} />
+                    <span className="text-[10px] font-black uppercase tracking-widest text-indigo-200">Court</span>
+                    <input type="number" className="w-12 bg-indigo-500 rounded-lg p-2 text-center font-black outline-none border border-indigo-400 focus:border-white" value={matchConfig.court} onChange={e => setMatchConfig({...matchConfig, court: parseInt(e.target.value) || 1})} />
+                  </div>
+                  <div className="flex items-center space-x-3">
+                    <span className="text-[10px] font-black uppercase tracking-widest text-indigo-200">Umpire</span>
+                    <input type="text" placeholder="Name" className="flex-1 bg-indigo-500 rounded-lg p-2 font-bold text-xs outline-none border border-indigo-400 focus:border-white" value={matchConfig.umpire} onChange={e => setMatchConfig({...matchConfig, umpire: e.target.value})} />
                   </div>
                 </div>
              </div>
@@ -316,7 +342,7 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
 
            <div className="grid grid-cols-1 gap-4">
              {matches.map(m => (
-               <div key={m.id} className="bg-white p-6 rounded-3xl border border-slate-100 flex items-center justify-between shadow-sm group hover:border-indigo-200 transition-all">
+               <div key={m.id} className="bg-white p-6 rounded-3xl border border-slate-100 flex flex-col md:flex-row md:items-center justify-between shadow-sm group hover:border-indigo-200 transition-all gap-4">
                   <div className="flex items-center space-x-6">
                      <div className="text-center w-12 border-r border-slate-100 pr-6">
                         <p className="text-[9px] font-black text-slate-300 uppercase tracking-widest">CRT</p>
@@ -332,17 +358,25 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
                           <span className="bg-slate-50 px-2 py-0.5 rounded text-[8px] font-black text-slate-400 uppercase tracking-widest">{m.bestOf} Sets • {m.pointsOption} Pts</span>
                         </div>
                         <div className="flex space-x-2">
-                           {m.scores.map((s, i) => <span key={i} className={`text-xs font-mono font-black px-3 py-1 rounded-lg ${s.s1 > s.s2 ? 'bg-indigo-50 text-indigo-600' : s.s2 > s.s1 ? 'bg-rose-50 text-rose-600' : 'bg-slate-50 text-slate-400'}`}>{s.s1}-{s.s2}</span>)}
+                           {m.scores.map((s, i) => (
+                             <div key={i} className={`flex flex-col items-center px-3 py-1 rounded-lg border ${s.s1 > s.s2 ? 'bg-emerald-50 border-emerald-100' : s.s2 > s.s1 ? 'bg-rose-50 border-rose-100' : 'bg-slate-50 border-slate-100'}`}>
+                               <span className="text-[7px] font-black uppercase tracking-tighter text-slate-400 mb-0.5">SET {i+1}</span>
+                               <span className="text-xs font-mono font-black">{s.s1}-{s.s2}</span>
+                             </div>
+                           ))}
                         </div>
                      </div>
                   </div>
-                  <div className="flex items-center space-x-4">
-                    <span className={`text-[9px] font-black uppercase tracking-widest ${m.status === MatchStatus.COMPLETED ? 'text-slate-400' : 'text-emerald-500 animate-pulse'}`}>{m.status}</span>
+                  <div className="flex items-center space-x-4 border-t md:border-t-0 pt-4 md:pt-0">
+                    <div className="text-right">
+                      <span className={`text-[9px] font-black uppercase tracking-widest block ${m.status === MatchStatus.COMPLETED ? 'text-slate-400' : 'text-emerald-500 animate-pulse'}`}>{m.status}</span>
+                      {m.umpireName && <span className="text-[8px] font-black text-slate-300 uppercase tracking-widest">Umpire: {m.umpireName}</span>}
+                    </div>
                     {m.status !== MatchStatus.COMPLETED && (
                       <button 
                         onClick={() => { setScoringMatch(m); setScores(m.scores); setShowPinModal(true); }}
                         className="bg-indigo-600 text-white px-6 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg shadow-indigo-100 active:scale-95 transition-all"
-                      >Open Scoreboard</button>
+                      >Open Board</button>
                     )}
                   </div>
                </div>
@@ -352,11 +386,93 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
         </div>
       )}
 
+      {activeTab === 'requests' && (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+           {joinRequests.map(req => (
+             <div key={req.id} className="bg-white p-8 rounded-3xl border border-slate-100 shadow-sm animate-in zoom-in">
+                <div className="flex justify-between items-start mb-6">
+                   <div>
+                      <h4 className="font-black text-slate-800 uppercase tracking-tighter italic">{req.name}</h4>
+                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">@{req.username}</p>
+                   </div>
+                   <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{new Date(req.timestamp).toLocaleDateString()}</div>
+                </div>
+                <div className="flex space-x-3">
+                   <button onClick={() => handleResolveJoin(req, true)} className="flex-1 bg-emerald-500 text-white font-black py-3 rounded-xl uppercase tracking-widest text-[10px] shadow-lg shadow-emerald-100">Approve</button>
+                   <button onClick={() => handleResolveJoin(req, false)} className="flex-1 bg-rose-50 text-rose-500 font-black py-3 rounded-xl uppercase tracking-widest text-[10px]">Reject</button>
+                </div>
+             </div>
+           ))}
+           {joinRequests.length === 0 && <div className="col-span-full py-20 text-center text-slate-300 font-black uppercase tracking-widest text-xs bg-white rounded-[2rem] border border-dashed border-slate-200">No pending join requests.</div>}
+        </div>
+      )}
+
+      {activeTab === 'settings' && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+           <div className="bg-white p-8 rounded-[2rem] border border-slate-100 shadow-sm">
+              <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-6">Ranking Criteria Order</h4>
+              <p className="text-[10px] text-slate-400 mb-6 italic">Determines standings placement in case of ties. Top is highest priority.</p>
+              <div className="space-y-2">
+                 {(tournament.rankingCriteriaOrder || []).map((criterion, idx) => (
+                   <div key={criterion} className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                      <div className="flex items-center space-x-3">
+                         <span className="w-6 h-6 bg-indigo-600 text-white flex items-center justify-center rounded-lg font-black text-[10px]">{idx + 1}</span>
+                         <span className="text-[11px] font-black uppercase tracking-widest text-slate-700">{criterion.replace(/_/g, ' ')}</span>
+                      </div>
+                      <div className="flex space-x-1">
+                         <button onClick={() => moveRankingCriterion(idx, 'up')} className="p-2 hover:bg-slate-200 rounded-lg transition-colors disabled:opacity-30" disabled={idx === 0}>↑</button>
+                         <button onClick={() => moveRankingCriterion(idx, 'down')} className="p-2 hover:bg-slate-200 rounded-lg transition-colors disabled:opacity-30" disabled={idx === (tournament.rankingCriteriaOrder?.length || 0) - 1}>↓</button>
+                      </div>
+                   </div>
+                 ))}
+              </div>
+           </div>
+
+           <div className="space-y-6">
+              <div className="bg-white p-8 rounded-[2rem] border border-slate-100 shadow-sm">
+                 <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-6">Security & Privacy</h4>
+                 <div className="space-y-6">
+                    <div>
+                       <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-2 block">Active Scorer PIN</label>
+                       <div className="flex space-x-2">
+                          <input 
+                            type="password" maxLength={4}
+                            className="flex-1 p-4 bg-slate-50 rounded-2xl text-center text-2xl font-black tracking-[0.5em] outline-none border-2 border-transparent focus:border-indigo-500"
+                            value={tempPin} onChange={e => setTempPin(e.target.value)}
+                          />
+                          <button onClick={handleUpdatePin} className="bg-slate-900 text-white px-6 rounded-2xl font-black uppercase text-[10px]">Update</button>
+                       </div>
+                    </div>
+                    <div className="flex items-center justify-between p-4 bg-indigo-50 rounded-2xl border border-indigo-100">
+                       <span className="text-[10px] font-black uppercase text-indigo-600">Privacy Status</span>
+                       <select 
+                         className="bg-transparent font-black uppercase text-[10px] outline-none text-indigo-700"
+                         value={tournament.isPublic ? 'true' : 'false'}
+                         onChange={e => store.updateTournamentSettings(tournament.id, { isPublic: e.target.value === 'true' }).then(loadData)}
+                       >
+                         <option value="true">PUBLIC</option>
+                         <option value="false">PROTECTED</option>
+                       </select>
+                    </div>
+                 </div>
+              </div>
+              <div className="bg-rose-50 p-8 rounded-[2rem] border border-rose-100">
+                 <h4 className="text-[10px] font-black text-rose-400 uppercase tracking-widest mb-4 italic">Danger Zone</h4>
+                 <button 
+                  onClick={() => window.confirm("Delete tournament?") && store.updateTournamentSettings(tournament.id, { status: 'FINISHED' }).then(onBack)}
+                  className="w-full bg-white text-rose-500 border border-rose-200 font-black py-4 rounded-2xl uppercase tracking-widest text-[10px] shadow-sm hover:bg-rose-500 hover:text-white transition-all"
+                 >Delete Arena Forever</button>
+              </div>
+           </div>
+        </div>
+      )}
+
+      {/* Existing Players and Teams Tabs ... Keep their functionality intact but adjust UI if needed */}
       {activeTab === 'players' && (
         <div className="space-y-6">
            {isOrganizer && !isLocked && (
              <div className="bg-white p-8 rounded-[2rem] border border-slate-100 shadow-sm">
-                <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-6">Add Player to Tournament Roster</h4>
+                <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-6">Add Player to Roster</h4>
                 <div className="flex gap-4">
                    <input 
                      type="text" 
@@ -374,7 +490,6 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
                      {isAddingPlayer ? 'Adding...' : 'Add to Pool'}
                    </button>
                 </div>
-                <p className="mt-4 text-[10px] text-slate-400 font-bold uppercase tracking-widest">Players in the pool can be tied to teams in the Teams tab.</p>
              </div>
            )}
 
@@ -385,14 +500,13 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
                 onClick={handleExportCSV}
                 className="text-[9px] font-black text-indigo-600 hover:text-indigo-800 uppercase tracking-widest flex items-center space-x-1 border border-indigo-200 bg-indigo-50/50 px-3 py-1.5 rounded-lg transition-colors"
                >
-                 <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
                  <span>Export CSV</span>
                </button>
              </div>
              <div className="relative w-full md:w-80">
                <input 
                  type="text" 
-                 placeholder="Search roster by name or @user..." 
+                 placeholder="Search roster..." 
                  className="w-full p-4 pl-12 bg-white border border-slate-200 rounded-2xl shadow-sm outline-none focus:border-indigo-500 font-bold text-xs"
                  value={rosterFilter}
                  onChange={(e) => setRosterFilter(e.target.value)}
@@ -411,16 +525,10 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
                       <div>
                         <p className="font-black text-slate-800 text-sm uppercase tracking-tight">{p.name}</p>
                         {p.username && <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest">@{p.username}</p>}
-                        {!p.isRegistered && <p className="text-[8px] text-orange-400 font-black uppercase tracking-widest">Unregistered Guest</p>}
                       </div>
                    </div>
                 </div>
               ))}
-              {filteredPool.length === 0 && (
-                <div className="col-span-full py-12 text-center text-slate-300 font-black uppercase tracking-widest text-xs bg-white rounded-[2rem] border border-dashed border-slate-100">
-                  {rosterFilter ? 'No results for search.' : 'No players in roster.'}
-                </div>
-              )}
            </div>
         </div>
       )}
@@ -432,7 +540,7 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
                 <div className="lg:col-span-2 bg-white p-8 rounded-[2rem] border border-slate-100 shadow-sm">
                    <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-6 flex justify-between">
                      <span>Team Configuration</span>
-                     <button onClick={() => setIsBulkOpen(!isBulkOpen)} className="text-indigo-600 hover:underline">{isBulkOpen ? 'Individual Entry' : 'Bulk Import Format'}</button>
+                     <button onClick={() => setIsBulkOpen(!isBulkOpen)} className="text-indigo-600 hover:underline">{isBulkOpen ? 'Individual Entry' : 'Bulk Import'}</button>
                    </h4>
                    
                    {!isBulkOpen ? (
@@ -457,7 +565,6 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
                                    </button>
                                  );
                                })}
-                               {(!tournament.playerPool || tournament.playerPool.length === 0) && <p className="col-span-2 text-center text-[10px] py-4 text-slate-400 uppercase font-black">Roster is empty. Add players in Players tab first.</p>}
                             </div>
                           </div>
                         </div>
@@ -466,25 +573,13 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
                    ) : (
                      <div className="space-y-4">
                         <textarea 
-                          placeholder="Format: Team Name, Player 1, Player 2&#10;Ex: Smashers, @pro_player, John Doe&#10;Ex: Eagles, @mike, @sara"
+                          placeholder="Team Name, Player 1, Player 2"
                           className="w-full h-48 p-6 bg-slate-50 rounded-2xl font-mono text-xs border-2 border-transparent focus:border-indigo-500 outline-none"
                           value={bulkInput} onChange={e => setBulkInput(e.target.value)}
                         />
                         <button onClick={handleBulkImport} className="w-full bg-indigo-600 text-white font-black py-4 rounded-2xl uppercase tracking-widest text-xs shadow-xl shadow-indigo-100">Process Bulk Import</button>
                      </div>
                    )}
-                </div>
-                <div className="bg-slate-900 p-8 rounded-[2rem] text-white shadow-xl">
-                   <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4 italic">Management Guide</h4>
-                   <p className="text-slate-400 text-sm leading-relaxed mb-4">
-                     1. <span className="text-white font-black">Pool:</span> Add players to the tournament pool first.
-                   </p>
-                   <p className="text-slate-400 text-sm leading-relaxed mb-4">
-                     2. <span className="text-white font-black">Tie:</span> Tie players from the pool to specific teams.
-                   </p>
-                   <p className="text-slate-400 text-sm leading-relaxed">
-                     3. <span className="text-white font-black">Bulk:</span> Use comma-separated values to add many teams at once.
-                   </p>
                 </div>
              </div>
            )}
@@ -523,10 +618,10 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
                  <tr className="text-[9px] font-black text-slate-400 uppercase tracking-widest">
                     <th className="px-10 py-6">Rank</th>
                     <th className="px-4 py-6">Team</th>
-                    <th className="px-4 py-6">P</th>
-                    <th className="px-4 py-6">W</th>
-                    <th className="px-4 py-6">L</th>
-                    <th className="px-10 py-6 text-right">Pts</th>
+                    <th className="px-4 py-6 text-center">Played</th>
+                    <th className="px-4 py-6 text-center">W-L</th>
+                    <th className="px-4 py-6 text-center">Sets</th>
+                    <th className="px-4 py-6 text-center">+/- Pts</th>
                  </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
@@ -536,10 +631,10 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
                          <span className={`w-8 h-8 rounded-lg flex items-center justify-center font-black text-xs ${idx === 0 ? 'bg-amber-100 text-amber-600' : 'bg-slate-100 text-slate-400'}`}>{idx + 1}</span>
                       </td>
                       <td className="px-4 py-6 font-black text-slate-800 uppercase italic tracking-tighter">{s.name}</td>
-                      <td className="px-4 py-6 font-bold text-slate-400">{s.played}</td>
-                      <td className="px-4 py-6 font-black text-emerald-500">{s.won}</td>
-                      <td className="px-4 py-6 font-bold text-rose-300">{s.lost}</td>
-                      <td className="px-10 py-6 text-right font-black text-indigo-600 text-lg">{s.points}</td>
+                      <td className="px-4 py-6 text-center font-bold text-slate-400">{s.played}</td>
+                      <td className="px-4 py-6 text-center font-black text-emerald-500">{s.matchesWon}-{s.played - s.matchesWon}</td>
+                      <td className="px-4 py-6 text-center font-bold text-slate-400">{s.setsWon}</td>
+                      <td className="px-4 py-6 text-center font-black text-indigo-600">{s.pointsScored - s.pointsConceded}</td>
                    </tr>
                  ))}
               </tbody>
@@ -554,8 +649,9 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
               {!isOrganizer && (
                 <div className="mb-8">
                   <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2 block text-center">Security PIN Required</label>
+                  <p className="text-[8px] text-center text-slate-400 mb-4 font-bold uppercase tracking-widest italic animate-pulse">Hint: Check with Organizer for the 4-digit code</p>
                   <input 
-                    type="password" placeholder="0000" maxLength={4}
+                    type="password" placeholder="••••" maxLength={4}
                     className="w-full p-6 bg-slate-50 rounded-3xl text-center text-4xl font-black tracking-[1em] outline-none border-2 border-transparent focus:border-indigo-500"
                     value={pinInput} onChange={e => setPinInput(e.target.value)}
                   />
@@ -567,14 +663,14 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
                       <span className="text-[10px] font-black text-indigo-400 uppercase italic">Set {i+1}</span>
                       <div className="flex items-center space-x-4">
                          <input 
-                           type="number" className="w-16 h-12 text-center font-black text-2xl bg-white rounded-xl shadow-inner outline-none focus:ring-2 ring-indigo-500"
+                           type="number" className={`w-16 h-12 text-center font-black text-2xl bg-white rounded-xl shadow-inner outline-none focus:ring-2 ring-indigo-500 ${s.s1 > s.s2 ? 'border-2 border-emerald-500' : ''}`}
                            value={s.s1} onChange={e => {
                              const ns = [...scores]; ns[i] = { s1: parseInt(e.target.value) || 0, s2: s.s2 }; setScores(ns);
                            }}
                          />
                          <span className="font-black text-slate-300">/</span>
                          <input 
-                           type="number" className="w-16 h-12 text-center font-black text-2xl bg-white rounded-xl shadow-inner outline-none focus:ring-2 ring-indigo-500"
+                           type="number" className={`w-16 h-12 text-center font-black text-2xl bg-white rounded-xl shadow-inner outline-none focus:ring-2 ring-indigo-500 ${s.s2 > s.s1 ? 'border-2 border-emerald-500' : ''}`}
                            value={s.s2} onChange={e => {
                              const ns = [...scores]; ns[i] = { s1: s.s1, s2: parseInt(e.target.value) || 0 }; setScores(ns);
                            }}
@@ -607,11 +703,12 @@ const ConfigItem = ({ label, value, onChange, options }: any) => (
   </div>
 );
 
-const Input = ({ label, value, onChange, placeholder, type = "text" }: any) => (
+const Input = ({ label, value, onChange, placeholder, type = "text", maxLength }: any) => (
   <div className="space-y-1">
     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">{label}</label>
     <input 
       type={type} 
+      maxLength={maxLength}
       placeholder={placeholder} 
       className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl focus:border-indigo-500 focus:bg-white outline-none font-bold transition-all"
       value={value}

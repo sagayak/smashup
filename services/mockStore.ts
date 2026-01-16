@@ -12,7 +12,8 @@ import {
   increment,
   limit,
   deleteDoc,
-  orderBy
+  orderBy,
+  arrayUnion
 } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js';
 import { 
   createUserWithEmailAndPassword, 
@@ -20,7 +21,7 @@ import {
   signOut
 } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js';
 import { db, auth } from './firebase.ts';
-import { User, Tournament, Match, UserRole, TournamentType, MatchFormat, MatchStatus, Team, CreditRequest, TournamentPlayer, MatchScore } from '../types.ts';
+import { User, Tournament, Match, UserRole, TournamentType, MatchFormat, MatchStatus, Team, CreditRequest, TournamentPlayer, MatchScore, JoinRequest, RankingCriterion } from '../types.ts';
 
 const SHADOW_DOMAIN = "@smashpro.local";
 
@@ -106,16 +107,58 @@ class DataService {
 
   async addTournament(data: Omit<Tournament, 'id' | 'uniqueId'>): Promise<Tournament> {
     const uniqueId = `T-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
-    const docRef = await addDoc(collection(db, "tournaments"), { ...data, uniqueId, isLocked: false });
+    const docRef = await addDoc(collection(db, "tournaments"), { 
+      ...data, 
+      uniqueId, 
+      isLocked: false,
+      rankingCriteriaOrder: ['MATCHES_WON', 'SETS_WON', 'POINTS_DIFF', 'HEAD_TO_HEAD']
+    });
     // Deduct credits
     await this.adjustCredits(data.organizerId, -200, "Tournament Creation");
     return { ...data, id: docRef.id, uniqueId, isLocked: false } as Tournament;
+  }
+
+  async updateTournamentSettings(id: string, updates: Partial<Tournament>) {
+    await updateDoc(doc(db, "tournaments", id), updates);
   }
 
   async searchTournamentById(uniqueId: string): Promise<Tournament | null> {
     const q = query(collection(db, "tournaments"), where("uniqueId", "==", uniqueId.toUpperCase()));
     const snapshot = await getDocs(q);
     return snapshot.empty ? null : ({ ...snapshot.docs[0].data(), id: snapshot.docs[0].id } as Tournament);
+  }
+
+  async joinTournament(tournamentId: string, user: User) {
+    await updateDoc(doc(db, "tournaments", tournamentId), {
+      participants: arrayUnion(user.username)
+    });
+    // Also auto-add to player pool as unregistered if not already there or handle pool update logic
+  }
+
+  async requestJoinTournament(tournamentId: string, user: User) {
+    await addDoc(collection(db, "joinRequests"), {
+      tournamentId,
+      userId: user.id,
+      username: user.username,
+      name: user.name,
+      status: 'PENDING',
+      timestamp: new Date().toISOString()
+    });
+  }
+
+  async getJoinRequests(tournamentId: string): Promise<JoinRequest[]> {
+    const q = query(collection(db, "joinRequests"), where("tournamentId", "==", tournamentId), where("status", "==", "PENDING"));
+    const snapshot = await getDocs(q);
+    return snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as JoinRequest));
+  }
+
+  async resolveJoinRequest(requestId: string, tournamentId: string, username: string, approved: boolean) {
+    if (approved) {
+      await updateDoc(doc(db, "tournaments", tournamentId), {
+        participants: arrayUnion(username)
+      });
+    }
+    await updateDoc(doc(db, "joinRequests", requestId), { status: approved ? 'APPROVED' : 'REJECTED' });
   }
 
   async updateTournamentPool(id: string, pool: TournamentPlayer[]) {
@@ -153,23 +196,15 @@ class DataService {
   }
 
   async getMatchesForUser(userId: string): Promise<Match[]> {
-    const q = query(collection(db, "matches"), where("participants", "array-contains", userId), orderBy("startTime", "desc"), limit(10));
-    try {
-      const snapshot = await getDocs(q);
-      return snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Match));
-    } catch (e) {
-      // Fallback if index isn't ready
-      const snapshot = await getDocs(collection(db, "matches"));
-      return snapshot.docs
-        .map(doc => ({ ...doc.data(), id: doc.id } as Match))
-        .filter(m => m.participants.includes(userId))
-        .sort((a,b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime())
-        .slice(0, 10);
-    }
+    const snapshot = await getDocs(collection(db, "matches"));
+    return snapshot.docs
+      .map(doc => ({ ...doc.data(), id: doc.id } as Match))
+      .filter(m => m.participants.includes(userId))
+      .sort((a,b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime())
+      .slice(0, 10);
   }
 
   async updateMatchScore(matchId: string, scores: MatchScore[], participants: string[]) {
-    // Determine winner based on sets won
     let p1Sets = 0;
     let p2Sets = 0;
     scores.forEach(s => {
@@ -191,37 +226,72 @@ class DataService {
   }
 
   async calculateStandings(tournamentId: string): Promise<any[]> {
+    const tournamentDoc = await getDoc(doc(db, "tournaments", tournamentId));
+    if (!tournamentDoc.exists()) return [];
+    const tournament = tournamentDoc.data() as Tournament;
+    const criteria = tournament.rankingCriteriaOrder || ['MATCHES_WON', 'SETS_WON', 'POINTS_DIFF', 'HEAD_TO_HEAD'];
+
     const teams = await this.getTeams(tournamentId);
     const matches = await this.getMatchesByTournament(tournamentId);
     
-    const standings = teams.map(t => ({
+    const stats = teams.map(t => ({
       id: t.id,
       name: t.name,
       played: 0,
-      won: 0,
-      lost: 0,
-      points: 0
+      matchesWon: 0,
+      setsWon: 0,
+      pointsScored: 0,
+      pointsConceded: 0,
+      headToHead: {} as Record<string, number> // Against other team IDs
     }));
 
     matches.filter(m => m.status === MatchStatus.COMPLETED).forEach(m => {
-      const t1 = standings.find(s => s.id === m.participants[0]);
-      const t2 = standings.find(s => s.id === m.participants[1]);
+      const t1 = stats.find(s => s.id === m.participants[0]);
+      const t2 = stats.find(s => s.id === m.participants[1]);
       if (t1 && t2) {
         t1.played++;
         t2.played++;
+        
+        let t1Sets = 0, t2Sets = 0;
+        m.scores.forEach(s => {
+          t1.pointsScored += s.s1;
+          t1.pointsConceded += s.s2;
+          t2.pointsScored += s.s2;
+          t2.pointsConceded += s.s1;
+          if (s.s1 > s.s2) t1Sets++;
+          else if (s.s2 > s.s1) t2Sets++;
+        });
+        
+        t1.setsWon += t1Sets;
+        t2.setsWon += t2Sets;
+
         if (m.winnerId === t1.id) {
-          t1.won++;
-          t1.points += 2;
-          t2.lost++;
+          t1.matchesWon++;
+          t1.headToHead[t2.id] = (t1.headToHead[t2.id] || 0) + 1;
         } else {
-          t2.won++;
-          t2.points += 2;
-          t1.lost++;
+          t2.matchesWon++;
+          t2.headToHead[t1.id] = (t2.headToHead[t1.id] || 0) + 1;
         }
       }
     });
 
-    return standings.sort((a, b) => b.points - a.points || b.won - a.won);
+    return stats.sort((a, b) => {
+      for (const criterion of criteria) {
+        if (criterion === 'MATCHES_WON') {
+          if (b.matchesWon !== a.matchesWon) return b.matchesWon - a.matchesWon;
+        } else if (criterion === 'SETS_WON') {
+          if (b.setsWon !== a.setsWon) return b.setsWon - a.setsWon;
+        } else if (criterion === 'POINTS_DIFF') {
+          const diffA = a.pointsScored - a.pointsConceded;
+          const diffB = b.pointsScored - b.pointsConceded;
+          if (diffB !== diffA) return diffB - diffA;
+        } else if (criterion === 'HEAD_TO_HEAD') {
+          if (a.headToHead[b.id]) return -1;
+          if (b.headToHead[a.id]) return 1;
+        }
+      }
+      return 0;
+    });
   }
 }
 

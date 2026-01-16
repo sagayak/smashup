@@ -66,14 +66,21 @@ export interface Tournament {
   playerLimit: number;
   scorerPin: string; 
   playerPool: TournamentPlayer[]; // Tournament-specific player roster
-  rankingCriteria: string[];
+  rankingCriteriaOrder: RankingCriterion[];
+}
+
+export type RankingCriterion = 'MATCHES_WON' | 'SETS_WON' | 'POINTS_DIFF' | 'HEAD_TO_HEAD';
+
+export interface MatchScore {
+  s1: number;
+  s2: number;
 }
 
 export interface Match {
   id: string;
   tournamentId: string;
   participants: string[]; 
-  scores: number[][]; 
+  scores: MatchScore[]; 
   winnerId?: string;
   court: number;
   startTime: string;
@@ -88,6 +95,16 @@ export interface CreditRequest {
   userId: string;
   username: string;
   amount: number;
+  status: 'PENDING' | 'APPROVED' | 'REJECTED';
+  timestamp: string;
+}
+
+export interface JoinRequest {
+  id: string;
+  tournamentId: string;
+  userId: string;
+  username: string;
+  name: string;
   status: 'PENDING' | 'APPROVED' | 'REJECTED';
   timestamp: string;
 }

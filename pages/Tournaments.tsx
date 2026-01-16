@@ -15,21 +15,53 @@ const Tournaments: React.FC<{ user: User }> = ({ user }) => {
   const [newTourney, setNewTourney] = useState<Partial<Tournament>>({
     name: '', venue: '', startDate: '', endDate: '',
     type: TournamentType.LEAGUE, format: MatchFormat.SINGLES,
-    numCourts: 2, isPublic: true, playerLimit: 32
+    numCourts: 2, isPublic: true, playerLimit: 32, scorerPin: '0000'
   });
 
   useEffect(() => { loadData(); }, []);
 
   async function loadData() {
-    const t = await store.getTournaments();
-    setTournaments(t);
+    const all = await store.getTournaments();
+    // Filter visibility: Public OR Participant OR Organizer OR SuperAdmin
+    const visible = all.filter(t => 
+      t.isPublic || 
+      t.participants.includes(user.username) || 
+      t.organizerId === user.id || 
+      user.role === UserRole.SUPERADMIN
+    );
+    setTournaments(visible);
   }
 
   const handleSearch = async () => {
     if (!searchId) return;
     const t = await store.searchTournamentById(searchId);
-    if (t) setSelectedTournament(t);
-    else setError("Tournament ID not found");
+    if (t) {
+       // Check if already participant or organizer
+       if (t.participants.includes(user.username) || t.organizerId === user.id || user.role === UserRole.SUPERADMIN) {
+         setSelectedTournament(t);
+       } else {
+         // Not a participant yet, show join preview
+         setTournaments([t]); // Just show this one in the list
+       }
+    } else {
+      setError("Tournament ID not found");
+    }
+  };
+
+  const handleJoinAction = async (t: Tournament) => {
+    try {
+      if (t.isPublic) {
+        if (t.participants.length >= t.playerLimit) return alert("Tournament is full!");
+        await store.joinTournament(t.id, user);
+        alert("Joined successfully!");
+        await loadData();
+      } else {
+        await store.requestJoinTournament(t.id, user);
+        alert("Join request sent to organizer!");
+      }
+    } catch (err) {
+      alert("Action failed.");
+    }
   };
 
   const handleCreate = async () => {
@@ -44,9 +76,9 @@ const Tournaments: React.FC<{ user: User }> = ({ user }) => {
         ...newTourney,
         organizerId: user.id,
         status: 'UPCOMING',
-        participants: [],
-        rankingCriteria: ['points', 'won'],
-        scorerPin: '0000'
+        participants: [user.username],
+        playerPool: [],
+        rankingCriteriaOrder: ['MATCHES_WON', 'SETS_WON', 'POINTS_DIFF', 'HEAD_TO_HEAD']
       } as any);
       setShowCreate(false);
       await loadData();
@@ -114,6 +146,18 @@ const Tournaments: React.FC<{ user: User }> = ({ user }) => {
               <Input label="Start Date" type="date" value={newTourney.startDate} onChange={v => setNewTourney({...newTourney, startDate: v})} />
               <Input label="End Date" type="date" value={newTourney.endDate} onChange={v => setNewTourney({...newTourney, endDate: v})} />
               <Input label="Player Limit" type="number" value={newTourney.playerLimit} onChange={v => setNewTourney({...newTourney, playerLimit: parseInt(v)})} />
+              <Input label="Scorer Pin" maxLength={4} value={newTourney.scorerPin} onChange={v => setNewTourney({...newTourney, scorerPin: v})} placeholder="Default: 0000" />
+              <div className="space-y-1">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Access Level</label>
+                <select 
+                  className="w-full p-3 bg-slate-50 rounded-xl font-bold border-2 border-slate-50 focus:border-indigo-500 outline-none"
+                  value={newTourney.isPublic ? 'true' : 'false'} 
+                  onChange={e => setNewTourney({...newTourney, isPublic: e.target.value === 'true'})}
+                >
+                  <option value="true">Public (Anyone can join)</option>
+                  <option value="false">Protected (Invite/Approval only)</option>
+                </select>
+              </div>
               <div className="space-y-1">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Type & Format</label>
                 <div className="flex gap-2">
@@ -146,34 +190,66 @@ const Tournaments: React.FC<{ user: User }> = ({ user }) => {
       )}
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-        {tournaments.map(t => (
-          <div key={t.id} onClick={() => setSelectedTournament(t)} className="bg-white p-8 rounded-[2rem] border border-slate-100 shadow-sm hover:shadow-2xl transition-all cursor-pointer group">
-            <div className="flex justify-between items-start mb-6">
-               <span className="text-[10px] font-black uppercase tracking-widest text-indigo-500 bg-indigo-50 px-3 py-1 rounded-lg">ID: {t.uniqueId}</span>
-               <span className={`px-3 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest ${t.isLocked ? 'bg-slate-900 text-white' : 'bg-green-100 text-green-600'}`}>
-                 {t.isLocked ? 'LOCKED' : 'OPEN'}
-               </span>
+        {tournaments.map(t => {
+          const isMember = t.participants.includes(user.username) || t.organizerId === user.id || user.role === UserRole.SUPERADMIN;
+          return (
+            <div key={t.id} className="bg-white p-8 rounded-[2rem] border border-slate-100 shadow-sm hover:shadow-2xl transition-all group overflow-hidden relative">
+              <div className="flex justify-between items-start mb-6">
+                 <span className="text-[10px] font-black uppercase tracking-widest text-indigo-500 bg-indigo-50 px-3 py-1 rounded-lg">ID: {t.uniqueId}</span>
+                 <div className="flex space-x-1">
+                    <span className={`px-2 py-1 rounded-lg text-[8px] font-black uppercase tracking-widest ${t.isPublic ? 'bg-indigo-500 text-white' : 'bg-slate-200 text-slate-500'}`}>
+                      {t.isPublic ? 'Public' : 'Protected'}
+                    </span>
+                    <span className={`px-2 py-1 rounded-lg text-[8px] font-black uppercase tracking-widest ${t.isLocked ? 'bg-slate-900 text-white' : 'bg-green-100 text-green-600'}`}>
+                      {t.isLocked ? 'LOCKED' : 'OPEN'}
+                    </span>
+                 </div>
+              </div>
+              <h4 className="text-2xl font-black text-slate-800 tracking-tighter mb-1 uppercase italic leading-none">{t.name}</h4>
+              <p className="text-slate-400 font-bold text-[10px] uppercase tracking-widest mb-6">{t.venue}</p>
+              
+              {isMember ? (
+                <button 
+                  onClick={() => setSelectedTournament(t)}
+                  className="w-full bg-slate-50 text-slate-800 font-black py-3 rounded-xl uppercase tracking-widest text-[10px] group-hover:bg-indigo-600 group-hover:text-white transition-all flex items-center justify-center space-x-2"
+                >
+                  <span>Go to Dashboard</span>
+                  <span>→</span>
+                </button>
+              ) : (
+                <button 
+                  onClick={() => handleJoinAction(t)}
+                  className="w-full bg-indigo-600 text-white font-black py-3 rounded-xl uppercase tracking-widest text-[10px] shadow-lg shadow-indigo-100 hover:scale-[1.02] active:scale-95 transition-all"
+                >
+                  {t.isPublic ? 'Join Tournament' : 'Request Access'}
+                </button>
+              )}
+
+              <div className="mt-4 pt-4 border-t border-slate-50 flex justify-between items-center text-[9px] font-black text-slate-400 uppercase tracking-widest">
+                 <span>{t.format} • {t.type}</span>
+                 <span>{t.participants.length}/{t.playerLimit} Slots</span>
+              </div>
             </div>
-            <h4 className="text-2xl font-black text-slate-800 tracking-tighter mb-1 uppercase italic leading-none">{t.name}</h4>
-            <p className="text-slate-400 font-bold text-[10px] uppercase tracking-widest mb-6">{t.venue}</p>
-            <div className="flex justify-between items-center pt-6 border-t border-slate-50">
-               <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                 {t.format} • {t.type}
-               </div>
-               <div className="text-indigo-600 font-black group-hover:translate-x-1 transition-transform">→</div>
-            </div>
+          );
+        })}
+        {tournaments.length === 0 && (
+          <div className="col-span-full py-24 text-center bg-white rounded-[2.5rem] border border-dashed border-slate-200">
+             <p className="text-slate-300 font-black uppercase tracking-widest text-xs">No tournaments visible to you. Search by ID to join.</p>
           </div>
-        ))}
+        )}
       </div>
     </div>
   );
 };
 
-const Input = ({ label, value, onChange, type = "text" }: any) => (
+const Input = ({ label, value, onChange, type = "text", placeholder = "", maxLength }: any) => (
   <div className="space-y-1">
     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">{label}</label>
     <input 
-      type={type} className="w-full p-3 bg-slate-50 border-2 border-slate-50 rounded-xl focus:border-indigo-500 outline-none font-bold"
+      type={type} 
+      maxLength={maxLength}
+      placeholder={placeholder}
+      className="w-full p-3 bg-slate-50 border-2 border-slate-50 rounded-xl focus:border-indigo-500 outline-none font-bold"
       value={value} onChange={e => onChange(e.target.value)}
     />
   </div>
