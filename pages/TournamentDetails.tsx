@@ -18,6 +18,7 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
   const [joinRequests, setJoinRequests] = useState<JoinRequest[]>([]);
   const [isLocked, setIsLocked] = useState(initialTournament.isLocked);
   const [isJoining, setIsJoining] = useState(false);
+  const [processingRequestId, setProcessingRequestId] = useState<string | null>(null);
   
   // Scoring State
   const [scoringMatch, setScoringMatch] = useState<Match | null>(null);
@@ -99,7 +100,7 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
   // --- SCORING LOGIC ---
   const handleOpenScoreboard = (match: Match) => {
     setScoringMatch(match);
-    setCurrentScores(match.scores.length > 0 ? [...match.scores] : [{ s1: 0, s2: 0 }]);
+    setCurrentScores(match.scores.length > 0 ? [...match.scores] : Array.from({ length: match.bestOf }, () => ({ s1: 0, s2: 0 })));
     setActiveSetIndex(0);
     setShowScoreboard(true);
     setPinEntry('');
@@ -226,6 +227,8 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
     if (!tournament.isLocked) return alert("Tournament must be LOCKED first.");
     if (!selectedT1 || !selectedT2 || selectedT1 === selectedT2) return alert("Select two different teams.");
     const finalPoints = matchConfig.points === 0 ? parseInt(matchConfig.customPoints) : matchConfig.points;
+    if (isNaN(finalPoints)) return alert("Invalid points configuration.");
+
     const scheduledDateTime = new Date(`${matchConfig.scheduleDate}T${matchConfig.scheduleTime}`).toISOString();
     try {
       await store.createMatch({
@@ -239,6 +242,9 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
         bestOf: matchConfig.bestOf,
         umpireName: matchConfig.umpire
       });
+      alert("Match Posted to Schedule!");
+      setSelectedT1('');
+      setSelectedT2('');
       await loadData();
     } catch (e: any) { alert(e.message); }
   };
@@ -267,8 +273,15 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
   };
 
   const handleResolveJoinRequest = async (id: string, username: string, approved: boolean) => {
-    await store.resolveJoinRequest(id, tournament.id, username, approved);
-    await loadData();
+    setProcessingRequestId(id);
+    try {
+      await store.resolveJoinRequest(id, tournament.id, username, approved);
+      await loadData();
+    } catch (err) {
+      alert("Action failed. Try again.");
+    } finally {
+      setProcessingRequestId(null);
+    }
   };
 
   const handleJoinAction = async () => {
@@ -371,20 +384,63 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
             <div className="bg-indigo-600 p-10 rounded-[3rem] text-white shadow-2xl relative overflow-hidden">
               {!isLocked && <div className="absolute inset-0 bg-indigo-950/80 backdrop-blur-md z-10 flex items-center justify-center p-8 text-center"><p className="font-black uppercase tracking-widest text-sm italic">Arena Lockdown Required to Schedule</p></div>}
               <h4 className="text-xl font-black uppercase italic tracking-tighter mb-8">Schedule Tie-Up</h4>
+              
               <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
                 <div className="space-y-3">
+                  <label className="text-[10px] font-black text-indigo-200 uppercase tracking-widest ml-1">Select Teams</label>
                   <select value={selectedT1} onChange={e => setSelectedT1(e.target.value)} className="w-full p-4 bg-indigo-500 rounded-2xl font-black text-xs uppercase outline-none">{teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}</select>
                   <select value={selectedT2} onChange={e => setSelectedT2(e.target.value)} className="w-full p-4 bg-indigo-500 rounded-2xl font-black text-xs uppercase outline-none">{teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}</select>
                 </div>
                 <div className="space-y-3">
-                  <input list="umpire-options" placeholder="Umpire Name" className="w-full p-4 bg-indigo-500 rounded-2xl font-black text-xs uppercase outline-none" value={matchConfig.umpire} onChange={e => setMatchConfig({...matchConfig, umpire: e.target.value})} />
+                  <label className="text-[10px] font-black text-indigo-200 uppercase tracking-widest ml-1">Official Details</label>
+                  <input list="umpire-options" placeholder="Umpire Name" className="w-full p-4 bg-indigo-500 rounded-2xl font-black text-xs uppercase outline-none placeholder:text-indigo-300" value={matchConfig.umpire} onChange={e => setMatchConfig({...matchConfig, umpire: e.target.value})} />
                   <div className="flex items-center space-x-3"><span className="text-[10px] font-black uppercase text-indigo-200">Court (1-6)</span><input type="number" min="1" max="6" className="w-20 bg-indigo-500 rounded-xl p-3 text-center font-black outline-none" value={matchConfig.court} onChange={e => setMatchConfig({...matchConfig, court: parseInt(e.target.value) || 1})} /></div>
                 </div>
                 <div className="space-y-3">
+                  <label className="text-[10px] font-black text-indigo-200 uppercase tracking-widest ml-1">Time Slots</label>
                   <input type="date" className="w-full p-4 bg-indigo-500 rounded-2xl font-black text-xs outline-none" value={matchConfig.scheduleDate} onChange={e => setMatchConfig({...matchConfig, scheduleDate: e.target.value})} />
                   <input type="time" className="w-full p-4 bg-indigo-500 rounded-2xl font-black text-xs outline-none" value={matchConfig.scheduleTime} onChange={e => setMatchConfig({...matchConfig, scheduleTime: e.target.value})} />
                 </div>
               </div>
+
+              {/* RESTORED: Format & Points Selection */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mt-6">
+                <div className="space-y-3">
+                  <label className="text-[10px] font-black text-indigo-200 uppercase tracking-widest ml-1">Match Format (Best of)</label>
+                  <div className="flex space-x-2">
+                    {[1, 3, 5].map(v => (
+                      <button 
+                        key={v}
+                        onClick={() => setMatchConfig({...matchConfig, bestOf: v})}
+                        className={`flex-1 py-3 rounded-xl font-black text-xs transition-all ${matchConfig.bestOf === v ? 'bg-white text-indigo-600 shadow-lg' : 'bg-indigo-500 text-indigo-200 hover:bg-indigo-400'}`}
+                      >
+                        {v} {v === 1 ? 'Set' : 'Sets'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="space-y-3">
+                  <label className="text-[10px] font-black text-indigo-200 uppercase tracking-widest ml-1">Points per Set</label>
+                  <div className="flex space-x-2">
+                    {[21, 30].map(v => (
+                      <button 
+                        key={v}
+                        onClick={() => setMatchConfig({...matchConfig, points: v, customPoints: ''})}
+                        className={`flex-1 py-3 rounded-xl font-black text-xs transition-all ${matchConfig.points === v ? 'bg-white text-indigo-600 shadow-lg' : 'bg-indigo-500 text-indigo-200 hover:bg-indigo-400'}`}
+                      >
+                        {v}
+                      </button>
+                    ))}
+                    <input 
+                      type="number" placeholder="Custom" 
+                      className={`w-24 p-3 rounded-xl font-black text-xs outline-none transition-all ${matchConfig.points === 0 ? 'bg-white text-indigo-600' : 'bg-indigo-500 text-white placeholder:text-indigo-300'}`}
+                      value={matchConfig.customPoints}
+                      onChange={e => setMatchConfig({...matchConfig, points: 0, customPoints: e.target.value})}
+                    />
+                  </div>
+                </div>
+              </div>
+
               <button onClick={handleStartMatch} disabled={!isLocked} className="mt-8 w-full bg-white text-indigo-600 p-4 rounded-2xl font-black uppercase text-xs shadow-xl active:scale-95 transition-all">Post to Schedule</button>
             </div>
           )}
@@ -607,7 +663,22 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
           {joinRequests.map(req => (
             <div key={req.id} className="p-8 flex items-center justify-between hover:bg-slate-50 transition-colors">
               <div><p className="font-black text-slate-800 italic uppercase leading-none text-sm">{req.name}</p><p className="text-[10px] font-black text-slate-400 mt-1 uppercase tracking-widest">@{req.username}</p></div>
-              <div className="flex space-x-3"><button onClick={() => handleResolveJoinRequest(req.id, req.username, true)} className="bg-indigo-600 text-white px-8 py-3 rounded-xl text-[10px] font-black uppercase shadow-lg active:scale-95">Accept</button><button onClick={() => handleResolveJoinRequest(req.id, req.username, false)} className="bg-slate-100 text-slate-400 px-8 py-3 rounded-xl text-[10px] font-black uppercase hover:bg-rose-50 active:scale-95">Decline</button></div>
+              <div className="flex space-x-3">
+                <button 
+                  onClick={() => handleResolveJoinRequest(req.id, req.username, true)} 
+                  disabled={processingRequestId === req.id}
+                  className="bg-indigo-600 text-white px-8 py-3 rounded-xl text-[10px] font-black uppercase shadow-lg active:scale-95 disabled:opacity-50 transition-all"
+                >
+                  {processingRequestId === req.id ? '...' : 'Accept'}
+                </button>
+                <button 
+                  onClick={() => handleResolveJoinRequest(req.id, req.username, false)} 
+                  disabled={processingRequestId === req.id}
+                  className="bg-slate-100 text-slate-400 px-8 py-3 rounded-xl text-[10px] font-black uppercase hover:bg-rose-50 active:scale-95 disabled:opacity-50 transition-all"
+                >
+                  Decline
+                </button>
+              </div>
             </div>
           ))}
           {joinRequests.length === 0 && <p className="p-20 text-center text-[10px] font-black uppercase text-slate-300 italic">No pending admission requests.</p>}
