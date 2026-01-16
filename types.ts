@@ -26,21 +26,24 @@ export interface User {
   name: string;
   username: string;
   email: string;
-  password?: string; // Simulated storage
   role: UserRole;
   credits: number;
   avatar?: string;
-  resetRequested?: boolean; // For manual admin reset requests
+  resetRequested?: boolean;
+  // Added for auth/signup flow handling in Omit types
+  password?: string;
 }
 
 export interface Team {
   id: string;
+  tournamentId: string;
   name: string;
-  playerIds: string[];
+  playerIds: string[]; // 1 to 20 players per team
 }
 
 export interface Tournament {
   id: string;
+  uniqueId: string; // Short code for searching
   name: string;
   venue: string;
   startDate: string;
@@ -50,18 +53,35 @@ export interface Tournament {
   numCourts: number;
   organizerId: string;
   status: 'UPCOMING' | 'ONGOING' | 'FINISHED';
-  participants: string[]; // User IDs for singles, Team IDs for doubles
+  participants: string[]; // Team IDs
+  isLocked: boolean;
+  isPublic: boolean;
+  playerLimit: number;
+  scorerPin: string; // Default "0000"
+  pointsOption: number; // 11, 15, 21, 25, 30
+  bestOf: number; // 1, 3, 5
+  rankingCriteria: string[]; // e.g. ["points", "setsDiff", "pointsDiff"]
 }
 
 export interface Match {
   id: string;
   tournamentId: string;
-  participants: string[]; // User IDs or Team IDs
-  scores: number[][]; // e.g., [[21, 19], [18, 21], [21, 15]]
+  participants: string[]; // Team IDs
+  scores: number[][]; 
   winnerId?: string;
   court: number;
   startTime: string;
   status: MatchStatus;
+  umpireName?: string;
+}
+
+export interface CreditRequest {
+  id: string;
+  userId: string;
+  username: string;
+  amount: number;
+  status: 'PENDING' | 'APPROVED' | 'REJECTED';
+  timestamp: string;
 }
 
 export interface CreditLog {

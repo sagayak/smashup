@@ -2,47 +2,40 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    
-    // Helper functions
-    function isSignedIn() {
-      return request.auth != null;
-    }
-    
-    function getUserData() {
-      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
-    }
-    
-    function hasRole(role) {
-      return isSignedIn() && getUserData().role == role;
-    }
+    function isSignedIn() { return request.auth != null; }
+    function getRole() { return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role; }
 
-    // User Profile rules
     match /users/{userId} {
       allow read: if isSignedIn();
-      // Allow creation if the database is empty (bootstrap) or normal signup
-      allow create: if isSignedIn();
-      // Only admins or the owner can update profiles
-      allow update: if hasRole('SUPERADMIN') || request.auth.uid == userId;
+      allow create: if isSignedIn() && request.auth.uid == userId;
+      allow update: if isSignedIn() && (request.auth.uid == userId || getRole() == 'SUPERADMIN');
     }
 
-    // Tournament rules
     match /tournaments/{tournamentId} {
       allow read: if isSignedIn();
-      allow create: if hasRole('ORGANIZER') || hasRole('SUPERADMIN');
-      // Players can update to join themselves
-      allow update: if hasRole('SUPERADMIN') || (hasRole('ORGANIZER') && resource.data.organizerId == request.auth.uid) || (isSignedIn() && request.resource.data.participants.hasAll(resource.data.participants));
+      allow create: if isSignedIn();
+      allow update: if isSignedIn() && (getRole() == 'SUPERADMIN' || resource.data.organizerId == request.auth.uid || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['participants']));
     }
 
-    // Match rules
+    match /teams/{teamId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
+    }
+
     match /matches/{matchId} {
       allow read: if isSignedIn();
-      allow create, update: if hasRole('ORGANIZER') || hasRole('SUPERADMIN');
+      allow write: if isSignedIn();
     }
 
-    // Credit Logs
+    match /creditRequests/{requestId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update: if isSignedIn() && getRole() == 'SUPERADMIN';
+    }
+
     match /creditLogs/{logId} {
-      allow read: if isSignedIn() && (request.auth.uid == resource.data.userId || hasRole('SUPERADMIN'));
-      allow create: if isSignedIn(); // Allow credit auto-award on join/win
+      allow read: if isSignedIn() && (request.auth.uid == resource.data.userId || getRole() == 'SUPERADMIN');
+      allow create: if isSignedIn();
     }
   }
 }

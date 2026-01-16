@@ -6,76 +6,59 @@ import TournamentDetails from './TournamentDetails';
 
 const Tournaments: React.FC<{ user: User }> = ({ user }) => {
   const [tournaments, setTournaments] = useState<Tournament[]>([]);
-  const [usersMap, setUsersMap] = useState<Record<string, User>>({});
   const [selectedTournament, setSelectedTournament] = useState<Tournament | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [error, setError] = useState('');
+  const [searchId, setSearchId] = useState('');
   
   const [newTourney, setNewTourney] = useState<Partial<Tournament>>({
-    name: '',
-    venue: '',
-    startDate: '',
-    endDate: '',
-    type: TournamentType.LEAGUE,
-    format: MatchFormat.SINGLES,
-    numCourts: 2
+    name: '', venue: '', startDate: '', endDate: '',
+    type: TournamentType.LEAGUE, format: MatchFormat.SINGLES,
+    numCourts: 2, pointsOption: 21, bestOf: 3, isPublic: true, playerLimit: 20
   });
 
-  useEffect(() => {
-    loadData();
-  }, []);
+  useEffect(() => { loadData(); }, []);
 
   async function loadData() {
-    try {
-      const [t, u] = await Promise.all([store.getTournaments(), store.getAllUsers()]);
-      setTournaments(t);
-      const map: Record<string, User> = {};
-      u.forEach(user => { map[user.id] = user; });
-      setUsersMap(map);
-    } catch (err) {
-      console.error("Failed to load data", err);
-    }
+    const t = await store.getTournaments();
+    setTournaments(t);
   }
 
+  const handleSearch = async () => {
+    if (!searchId) return;
+    const t = await store.searchTournamentById(searchId);
+    if (t) setSelectedTournament(t);
+    else setError("Tournament ID not found");
+  };
+
   const handleCreate = async () => {
-    if (!newTourney.name || !newTourney.venue || !newTourney.startDate || !newTourney.endDate) {
-      setError('Please fill in all required fields, including dates.');
+    if (user.credits < 200) {
+      setError("Insufficient credits! Request 200 credits from SuperAdmin.");
       return;
     }
     
-    setError('');
     setIsCreating(true);
     try {
-      await store.addTournament({
-        name: newTourney.name,
-        venue: newTourney.venue,
-        startDate: newTourney.startDate,
-        endDate: newTourney.endDate,
-        type: newTourney.type as TournamentType,
-        format: newTourney.format as MatchFormat,
-        numCourts: newTourney.numCourts as number,
+      const id = await store.addTournament({
+        ...newTourney,
         organizerId: user.id,
         status: 'UPCOMING',
-        participants: []
-      } as Tournament);
-      
-      await loadData();
+        participants: [],
+        rankingCriteria: ['points', 'won'],
+      } as any);
       setShowCreate(false);
-      setNewTourney({
-        name: '',
-        venue: '',
-        startDate: '',
-        endDate: '',
-        type: TournamentType.LEAGUE,
-        format: MatchFormat.SINGLES,
-        numCourts: 2
-      });
+      await loadData();
     } catch (err: any) {
-      setError(err.message || 'Failed to create tournament. Check permissions.');
+      setError(err.message);
     } finally {
       setIsCreating(false);
     }
+  };
+
+  const handleRequestCredits = async () => {
+    await store.requestCredits(user.id, user.username, 200);
+    alert("Credit request sent to SuperAdmin!");
   };
 
   if (selectedTournament) {
@@ -83,85 +66,84 @@ const Tournaments: React.FC<{ user: User }> = ({ user }) => {
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <h3 className="text-xl font-black text-slate-800 uppercase tracking-tighter italic">Browse Events</h3>
-        {user.role !== UserRole.PLAYER && (
-          <button 
-            onClick={() => {
-              setShowCreate(true);
-              setError('');
-            }}
-            className="bg-indigo-600 text-white px-6 py-2.5 rounded-xl font-black text-xs uppercase tracking-widest hover:bg-indigo-700 transition-all flex items-center space-x-2 shadow-xl shadow-indigo-100 active:scale-95"
-          >
-            <span>+ Create Tournament</span>
+    <div className="space-y-8 animate-in fade-in duration-500">
+      {/* Search Header */}
+      <div className="flex flex-col md:flex-row gap-4 items-center justify-between">
+        <div className="relative w-full md:w-96">
+          <input 
+            type="text" placeholder="Enter ID (e.g. BWF-24)" 
+            className="w-full p-4 pl-12 bg-white border border-slate-200 rounded-2xl shadow-sm outline-none focus:border-indigo-500 font-black uppercase tracking-widest text-sm"
+            value={searchId} onChange={e => setSearchId(e.target.value)}
+          />
+          <button onClick={handleSearch} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
           </button>
-        )}
+        </div>
+
+        <button 
+          onClick={() => { setShowCreate(true); setError(''); }}
+          className="w-full md:w-auto bg-indigo-600 text-white px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-xs hover:bg-indigo-700 shadow-xl shadow-indigo-100 transition-all flex items-center justify-center space-x-2"
+        >
+          <span>Create Tournament</span>
+          <span className="bg-indigo-500 px-2 py-0.5 rounded-lg text-[10px]">-200 Credits</span>
+        </button>
       </div>
 
       {showCreate && (
-        <div className="bg-white p-8 rounded-[2.5rem] border-2 border-indigo-100 shadow-2xl space-y-6 animate-in slide-in-from-top duration-500">
-          <div className="flex justify-between items-center">
-            <h4 className="text-2xl font-black text-slate-800 tracking-tighter uppercase italic">Tournament Architect</h4>
-            <button onClick={() => setShowCreate(false)} className="text-slate-300 hover:text-slate-500 transition-colors">
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
-            </button>
-          </div>
-          
-          {error && <div className="bg-rose-50 text-rose-500 p-4 rounded-2xl text-xs font-black uppercase tracking-widest border border-rose-100 text-center">{error}</div>}
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-            <div className="space-y-4">
-               <div className="space-y-1">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Event Name</label>
-                <input 
-                  type="text" placeholder="e.g. Winter Open 2024" 
-                  className="p-4 bg-slate-50 border-2 border-slate-50 rounded-2xl w-full focus:border-indigo-500 outline-none font-bold transition-all"
-                  value={newTourney.name} onChange={e => setNewTourney({...newTourney, name: e.target.value})}
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Venue</label>
-                <input 
-                  type="text" placeholder="Stadium / Court Name" 
-                  className="p-4 bg-slate-50 border-2 border-slate-50 rounded-2xl w-full focus:border-indigo-500 outline-none font-bold transition-all"
-                  value={newTourney.venue} onChange={e => setNewTourney({...newTourney, venue: e.target.value})}
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1">
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Start Date</label>
-                  <input 
-                    type="date" className="p-4 bg-slate-50 border-2 border-slate-50 rounded-2xl w-full focus:border-indigo-500 outline-none font-bold text-sm"
-                    value={newTourney.startDate} onChange={e => setNewTourney({...newTourney, startDate: e.target.value})}
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">End Date</label>
-                  <input 
-                    type="date" className="p-4 bg-slate-50 border-2 border-slate-50 rounded-2xl w-full focus:border-indigo-500 outline-none font-bold text-sm"
-                    value={newTourney.endDate} onChange={e => setNewTourney({...newTourney, endDate: e.target.value})}
-                  />
-                </div>
-              </div>
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[200] flex items-center justify-center p-4">
+          <div className="bg-white rounded-[2.5rem] w-full max-w-2xl p-8 md:p-12 shadow-2xl overflow-y-auto max-h-[90vh]">
+            <div className="flex justify-between items-center mb-8">
+              <h4 className="text-3xl font-black text-slate-800 italic uppercase tracking-tighter">Arena Config</h4>
+              <button onClick={() => setShowCreate(false)} className="text-slate-300 hover:text-slate-500">
+                <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
             </div>
 
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1">
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Type</label>
+            {error && (
+              <div className="bg-rose-50 border border-rose-100 p-4 rounded-2xl mb-6 flex items-center justify-between">
+                <p className="text-rose-500 font-black uppercase tracking-widest text-[10px]">{error}</p>
+                {user.credits < 200 && (
+                  <button onClick={handleRequestCredits} className="text-[10px] font-black uppercase text-indigo-600 underline">Request Credits</button>
+                )}
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <Input label="Name" value={newTourney.name} onChange={v => setNewTourney({...newTourney, name: v})} />
+              <Input label="Venue" value={newTourney.venue} onChange={v => setNewTourney({...newTourney, venue: v})} />
+              <Input label="Start Date" type="date" value={newTourney.startDate} onChange={v => setNewTourney({...newTourney, startDate: v})} />
+              <Input label="End Date" type="date" value={newTourney.endDate} onChange={v => setNewTourney({...newTourney, endDate: v})} />
+              
+              <div className="space-y-1">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Scoring Style</label>
+                <div className="flex gap-2">
                   <select 
-                    className="p-4 bg-slate-50 border-2 border-slate-50 rounded-2xl w-full focus:border-indigo-500 outline-none font-bold"
+                    className="flex-1 p-3 bg-slate-50 rounded-xl font-bold border-2 border-slate-50 focus:border-indigo-500 outline-none"
+                    value={newTourney.pointsOption} onChange={e => setNewTourney({...newTourney, pointsOption: parseInt(e.target.value)})}
+                  >
+                    {[11, 15, 21, 25, 30].map(v => <option key={v} value={v}>{v} Pts</option>)}
+                  </select>
+                  <select 
+                    className="flex-1 p-3 bg-slate-50 rounded-xl font-bold border-2 border-slate-50 focus:border-indigo-500 outline-none"
+                    value={newTourney.bestOf} onChange={e => setNewTourney({...newTourney, bestOf: parseInt(e.target.value)})}
+                  >
+                    {[1, 3, 5].map(v => <option key={v} value={v}>Best of {v}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Type & Format</label>
+                <div className="flex gap-2">
+                  <select 
+                    className="flex-1 p-3 bg-slate-50 rounded-xl font-bold border-2 border-slate-50 focus:border-indigo-500 outline-none"
                     value={newTourney.type} onChange={e => setNewTourney({...newTourney, type: e.target.value as TournamentType})}
                   >
                     <option value={TournamentType.LEAGUE}>League</option>
                     <option value={TournamentType.KNOCKOUT}>Knockout</option>
                   </select>
-                </div>
-                <div className="space-y-1">
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Format</label>
                   <select 
-                    className="p-4 bg-slate-50 border-2 border-slate-50 rounded-2xl w-full focus:border-indigo-500 outline-none font-bold"
+                    className="flex-1 p-3 bg-slate-50 rounded-xl font-bold border-2 border-slate-50 focus:border-indigo-500 outline-none"
                     value={newTourney.format} onChange={e => setNewTourney({...newTourney, format: e.target.value as MatchFormat})}
                   >
                     <option value={MatchFormat.SINGLES}>Singles</option>
@@ -169,68 +151,39 @@ const Tournaments: React.FC<{ user: User }> = ({ user }) => {
                   </select>
                 </div>
               </div>
-              <div className="space-y-1">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Total Courts</label>
-                <input 
-                  type="number" min="1" max="10"
-                  className="p-4 bg-slate-50 border-2 border-slate-50 rounded-2xl w-full focus:border-indigo-500 outline-none font-bold"
-                  value={newTourney.numCourts} onChange={e => setNewTourney({...newTourney, numCourts: parseInt(e.target.value)})}
-                />
-              </div>
-              <div className="pt-4">
-                 <button 
-                  onClick={handleCreate} 
-                  disabled={isCreating}
-                  className="w-full bg-indigo-600 text-white px-8 py-5 rounded-[1.5rem] font-black uppercase tracking-widest text-sm hover:bg-indigo-700 transition-all shadow-xl shadow-indigo-100 disabled:opacity-50 active:scale-95"
-                >
-                  {isCreating ? 'Synchronizing with Cloud...' : 'Launch Tournament Arena'}
-                </button>
-              </div>
             </div>
+
+            <button 
+              onClick={handleCreate} disabled={isCreating}
+              className="w-full bg-indigo-600 text-white font-black py-5 rounded-3xl mt-10 hover:bg-indigo-700 transition-all shadow-xl shadow-indigo-100 uppercase tracking-widest text-sm"
+            >
+              {isCreating ? 'Synchronizing Arena...' : 'Launch Tournament'}
+            </button>
           </div>
         </div>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-8">
+      {/* Grid of Tournaments */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
         {tournaments.map(t => (
           <div 
             key={t.id} 
             onClick={() => setSelectedTournament(t)}
-            className="bg-white rounded-[2rem] shadow-sm border border-slate-100 overflow-hidden group hover:border-indigo-400 hover:shadow-2xl hover:shadow-indigo-50 transition-all cursor-pointer transform hover:-translate-y-1 duration-300"
+            className="bg-white p-8 rounded-[2rem] border border-slate-100 shadow-sm hover:shadow-2xl transition-all cursor-pointer group"
           >
-            <div className="h-48 bg-slate-100 relative overflow-hidden">
-               <img src={`https://picsum.photos/seed/${t.id}/600/400`} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700 opacity-90 group-hover:opacity-100" alt="Badminton Court" />
-               <div className="absolute top-4 left-4">
-                 <span className={`px-4 py-1 rounded-full text-[9px] font-black uppercase tracking-widest shadow-lg ${t.status === 'ONGOING' ? 'bg-green-500 text-white' : 'bg-indigo-600 text-white'}`}>
-                   {t.status}
-                 </span>
-               </div>
+            <div className="flex justify-between items-start mb-6">
+               <span className="text-[10px] font-black uppercase tracking-widest text-indigo-500 bg-indigo-50 px-3 py-1 rounded-lg">ID: {t.uniqueId}</span>
+               <span className={`px-3 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest ${t.isLocked ? 'bg-slate-900 text-white' : 'bg-green-100 text-green-600'}`}>
+                 {t.isLocked ? 'LOCKED' : 'OPEN'}
+               </span>
             </div>
-            <div className="p-8">
-              <div className="flex justify-between items-start mb-2">
-                <h4 className="font-black text-slate-800 text-xl tracking-tighter uppercase italic leading-none">{t.name}</h4>
-                <div className="bg-slate-50 px-2 py-1 rounded-lg text-[9px] font-black text-slate-400 uppercase tracking-widest border border-slate-100">{t.format}</div>
-              </div>
-              <p className="text-slate-400 text-[10px] font-black uppercase tracking-widest mb-6 flex items-center space-x-2">
-                <svg className="w-3 h-3 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
-                <span>{t.venue}</span>
-              </p>
-              <div className="flex justify-between items-center pt-6 border-t border-slate-50">
-                <div className="flex items-center space-x-2">
-                   <div className="flex -space-x-2">
-                     {t.participants.slice(0, 3).map(pId => (
-                       <div key={pId} className="w-8 h-8 rounded-full border-2 border-white bg-indigo-50 flex items-center justify-center text-[10px] font-black text-indigo-600 shadow-sm">
-                          {usersMap[pId]?.name[0] || '?'}
-                       </div>
-                     ))}
-                   </div>
-                   <span className="text-[9px] font-black text-slate-300 uppercase tracking-widest">{t.participants.length} Active</span>
-                </div>
-                <div className="text-indigo-600 font-black text-[10px] uppercase tracking-widest group-hover:translate-x-1 transition-transform flex items-center space-x-1">
-                  <span>Enter Arena</span>
-                  <span>→</span>
-                </div>
-              </div>
+            <h4 className="text-2xl font-black text-slate-800 tracking-tighter mb-1 uppercase italic leading-none">{t.name}</h4>
+            <p className="text-slate-400 font-bold text-[10px] uppercase tracking-widest mb-6">{t.venue}</p>
+            <div className="flex justify-between items-center pt-6 border-t border-slate-50">
+               <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                 {t.format} • {t.type}
+               </div>
+               <div className="text-indigo-600 font-black group-hover:translate-x-1 transition-transform">→</div>
             </div>
           </div>
         ))}
@@ -238,5 +191,15 @@ const Tournaments: React.FC<{ user: User }> = ({ user }) => {
     </div>
   );
 };
+
+const Input = ({ label, value, onChange, type = "text" }: any) => (
+  <div className="space-y-1">
+    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">{label}</label>
+    <input 
+      type={type} className="w-full p-3 bg-slate-50 border-2 border-slate-50 rounded-xl focus:border-indigo-500 outline-none font-bold"
+      value={value} onChange={e => onChange(e.target.value)}
+    />
+  </div>
+);
 
 export default Tournaments;
