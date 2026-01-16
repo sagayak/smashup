@@ -72,7 +72,7 @@ const Dashboard: React.FC<{ user: User }> = ({ user }) => {
                       {match.winnerId === user.id ? 'Victory' : 'Defeat'}
                     </p>
                     <p className="text-lg font-black text-slate-700 font-mono">
-                      {match.scores.map(s => `${s[0]}-${s[1]}`).join(' ')}
+                      {match.scores.map(s => `${s.s1}-${s.s2}`).join(' ')}
                     </p>
                   </div>
                 </div>

@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { Tournament, Match, User, UserRole, MatchStatus, Team, TournamentPlayer } from '../types';
+import { Tournament, Match, User, UserRole, MatchStatus, Team, TournamentPlayer, MatchScore } from '../types';
 import { store } from '../services/mockStore';
 
 interface Props {
@@ -26,7 +26,7 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
   const [scoringMatch, setScoringMatch] = useState<Match | null>(null);
   const [pinInput, setPinInput] = useState('');
   const [showPinModal, setShowPinModal] = useState(false);
-  const [scores, setScores] = useState<number[][]>([[0, 0], [0, 0], [0, 0]]);
+  const [scores, setScores] = useState<MatchScore[]>([]);
 
   // Players Tab State
   const [playerSearch, setPlayerSearch] = useState('');
@@ -47,7 +47,6 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
     }
   }, [initialTournament?.id]);
 
-  // Sync teams selection when teams list loads
   useEffect(() => {
     if (teams.length >= 2) {
       const t1StillExists = teams.some(t => t.id === selectedT1);
@@ -110,11 +109,9 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
 
   const handleCreateTeam = async () => {
     if (!newTeamName || selectedPoolPlayers.length === 0) return;
-    
     try {
       const playerIds = selectedPoolPlayers.filter(p => p.id).map(p => p.id!);
       const customNames = selectedPoolPlayers.filter(p => !p.id).map(p => p.name);
-      
       await store.addTeam({ 
         tournamentId: tournament.id, 
         name: newTeamName, 
@@ -136,17 +133,14 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
       if (parts.length < 2) continue;
       const teamName = parts[0];
       const playerNames = parts.slice(1);
-      
       const playerIds: string[] = [];
       const customNames: string[] = [];
-      
       for (const name of playerNames) {
         const cleaned = name.replace('@', '').toLowerCase();
         const found = allUsers.find(u => u.username.toLowerCase() === cleaned || u.name.toLowerCase() === name.toLowerCase());
         if (found) playerIds.push(found.id);
         else customNames.push(name);
       }
-      
       await store.addTeam({ tournamentId: tournament.id, name: teamName, playerIds, customPlayerNames: customNames });
     }
     setBulkInput('');
@@ -169,24 +163,20 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
     if (!tId) return alert("Tournament ID not found. Please refresh.");
     if (!selectedT1 || !selectedT2) return alert("Please select two teams for the tie-up.");
     if (selectedT1 === selectedT2) return alert("A team cannot play against itself!");
-    
     try {
-      // Force configuration to numbers to prevent Firestore NaN/type errors
       const setsCount = Math.max(1, Number(matchConfig.bestOf) || 3);
       const pointsPerSet = Number(matchConfig.points) || 21;
       const courtNumber = Number(matchConfig.court) || 1;
-      
       const matchData: Omit<Match, 'id'> = {
         tournamentId: tId,
         participants: [selectedT1, selectedT2],
-        scores: Array.from({ length: setsCount }, () => [0, 0]),
-        status: 'SCHEDULED' as MatchStatus,
+        scores: Array.from({ length: setsCount }, () => ({ s1: 0, s2: 0 })),
+        status: MatchStatus.SCHEDULED,
         court: courtNumber,
         startTime: new Date().toISOString(),
         pointsOption: pointsPerSet,
         bestOf: setsCount
       };
-
       await store.createMatch(matchData);
       await loadData();
       alert("Tie-up initialized successfully!");
@@ -297,7 +287,7 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
                           <span className="bg-slate-50 px-2 py-0.5 rounded text-[8px] font-black text-slate-400 uppercase tracking-widest">{m.bestOf} Sets • {m.pointsOption} Pts</span>
                         </div>
                         <div className="flex space-x-2">
-                           {m.scores.map((s, i) => <span key={i} className={`text-xs font-mono font-black px-3 py-1 rounded-lg ${s[0] > s[1] ? 'bg-indigo-50 text-indigo-600' : s[1] > s[0] ? 'bg-rose-50 text-rose-600' : 'bg-slate-50 text-slate-400'}`}>{s[0]}-{s[1]}</span>)}
+                           {m.scores.map((s, i) => <span key={i} className={`text-xs font-mono font-black px-3 py-1 rounded-lg ${s.s1 > s.s2 ? 'bg-indigo-50 text-indigo-600' : s.s2 > s.s1 ? 'bg-rose-50 text-rose-600' : 'bg-slate-50 text-slate-400'}`}>{s.s1}-{s.s2}</span>)}
                         </div>
                      </div>
                   </div>
@@ -508,15 +498,15 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
                       <div className="flex items-center space-x-4">
                          <input 
                            type="number" className="w-16 h-12 text-center font-black text-2xl bg-white rounded-xl shadow-inner outline-none focus:ring-2 ring-indigo-500"
-                           value={s[0]} onChange={e => {
-                             const ns = [...scores]; ns[i] = [parseInt(e.target.value) || 0, s[1]]; setScores(ns);
+                           value={s.s1} onChange={e => {
+                             const ns = [...scores]; ns[i] = { s1: parseInt(e.target.value) || 0, s2: s.s2 }; setScores(ns);
                            }}
                          />
                          <span className="font-black text-slate-300">/</span>
                          <input 
                            type="number" className="w-16 h-12 text-center font-black text-2xl bg-white rounded-xl shadow-inner outline-none focus:ring-2 ring-indigo-500"
-                           value={s[1]} onChange={e => {
-                             const ns = [...scores]; ns[i] = [s[0], parseInt(e.target.value) || 0]; setScores(ns);
+                           value={s.s2} onChange={e => {
+                             const ns = [...scores]; ns[i] = { s1: s.s1, s2: parseInt(e.target.value) || 0 }; setScores(ns);
                            }}
                          />
                       </div>
