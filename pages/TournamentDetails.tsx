@@ -16,7 +16,7 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
   const [teams, setTeams] = useState<Team[]>([]);
   const [standings, setStandings] = useState<any[]>([]);
   const [allUsers, setAllUsers] = useState<User[]>([]);
-  const [isLocked, setIsLocked] = useState(tournament.isLocked);
+  const [isLocked, setIsLocked] = useState(initialTournament.isLocked);
   
   // Tie-up (Match) Selection State
   const [selectedT1, setSelectedT1] = useState('');
@@ -41,29 +41,41 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
   // Match Config
   const [matchConfig, setMatchConfig] = useState({ points: 21, bestOf: 3, court: 1 });
 
-  useEffect(() => { loadData(); }, [tournament.id]);
+  useEffect(() => { loadData(); }, [initialTournament.id]);
 
+  // Sync teams selection when teams list loads
   useEffect(() => {
     if (teams.length >= 2) {
-      if (!selectedT1) setSelectedT1(teams[0].id);
-      if (!selectedT2) setSelectedT2(teams[1].id);
+      if (!selectedT1 || !teams.find(t => t.id === selectedT1)) {
+        setSelectedT1(teams[0].id);
+      }
+      if (!selectedT2 || !teams.find(t => t.id === selectedT2)) {
+        setSelectedT2(teams[1].id);
+      }
     }
   }, [teams]);
 
   const loadData = async () => {
-    const [m, t, s, u, tourneys] = await Promise.all([
-      store.getMatchesByTournament(tournament.id),
-      store.getTeams(tournament.id),
-      store.calculateStandings(tournament.id),
-      store.getAllUsers(),
-      store.getTournaments()
-    ]);
-    const updatedTourney = tourneys.find(x => x.id === tournament.id);
-    if (updatedTourney) setTournament(updatedTourney);
-    setMatches(m.sort((a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime()));
-    setTeams(t);
-    setStandings(s);
-    setAllUsers(u);
+    try {
+      const [m, t, s, u, tourneys] = await Promise.all([
+        store.getMatchesByTournament(initialTournament.id),
+        store.getTeams(initialTournament.id),
+        store.calculateStandings(initialTournament.id),
+        store.getAllUsers(),
+        store.getTournaments()
+      ]);
+      const updatedTourney = tourneys.find(x => x.id === initialTournament.id);
+      if (updatedTourney) {
+        setTournament(updatedTourney);
+        setIsLocked(updatedTourney.isLocked);
+      }
+      setMatches(m.sort((a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime()));
+      setTeams(t);
+      setStandings(s);
+      setAllUsers(u);
+    } catch (err) {
+      console.error("Error loading tournament data:", err);
+    }
   };
 
   const isOrganizer = user.id === tournament.organizerId || user.role === UserRole.SUPERADMIN;
@@ -81,6 +93,8 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
       await store.updateTournamentPool(tournament.id, newPool);
       setPlayerSearch('');
       await loadData();
+    } catch (err) {
+      console.error("Error adding to pool:", err);
     } finally {
       setIsAddingPlayer(false);
     }
@@ -89,18 +103,22 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
   const handleCreateTeam = async () => {
     if (!newTeamName || selectedPoolPlayers.length === 0) return;
     
-    const playerIds = selectedPoolPlayers.filter(p => p.id).map(p => p.id!);
-    const customNames = selectedPoolPlayers.filter(p => !p.id).map(p => p.name);
-    
-    await store.addTeam({ 
-      tournamentId: tournament.id, 
-      name: newTeamName, 
-      playerIds, 
-      customPlayerNames: customNames 
-    });
-    setNewTeamName('');
-    setSelectedPoolPlayers([]);
-    await loadData();
+    try {
+      const playerIds = selectedPoolPlayers.filter(p => p.id).map(p => p.id!);
+      const customNames = selectedPoolPlayers.filter(p => !p.id).map(p => p.name);
+      
+      await store.addTeam({ 
+        tournamentId: tournament.id, 
+        name: newTeamName, 
+        playerIds, 
+        customPlayerNames: customNames 
+      });
+      setNewTeamName('');
+      setSelectedPoolPlayers([]);
+      await loadData();
+    } catch (err) {
+      console.error("Error creating team:", err);
+    }
   };
 
   const handleBulkImport = async () => {
@@ -130,41 +148,50 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
 
   const handleLock = async () => {
     if (!window.confirm("WARNING: Teams and Player Pool cannot be edited after lock. Proceed?")) return;
-    await store.lockTournament(tournament.id);
-    setIsLocked(true);
-    await loadData();
+    try {
+      await store.lockTournament(tournament.id);
+      await loadData();
+    } catch (err) {
+      console.error("Error locking tournament:", err);
+    }
   };
 
   const handleStartMatch = async () => {
-    if (!isLocked) return alert("Lock tournament first!");
     if (!selectedT1 || !selectedT2) return alert("Please select two teams for the tie-up.");
     if (selectedT1 === selectedT2) return alert("A team cannot play against itself!");
     
     try {
+      const setsCount = Number(matchConfig.bestOf) || 3;
       await store.createMatch({
         tournamentId: tournament.id,
         participants: [selectedT1, selectedT2],
-        scores: Array(matchConfig.bestOf).fill(null).map(() => [0, 0]),
+        scores: Array(setsCount).fill(null).map(() => [0, 0]),
         status: MatchStatus.SCHEDULED,
-        court: matchConfig.court,
+        court: Number(matchConfig.court) || 1,
         startTime: new Date().toISOString(),
-        pointsOption: matchConfig.points,
-        bestOf: matchConfig.bestOf
+        pointsOption: Number(matchConfig.points) || 21,
+        bestOf: setsCount
       });
       await loadData();
+      alert("Tie-up initialized successfully!");
     } catch (e) {
-      alert("Failed to initialize tie-up. Check console.");
+      console.error("Match creation failed:", e);
+      alert("Failed to initialize tie-up. Check console for details.");
     }
   };
 
   const handleSaveScore = async () => {
     if (scoringMatch) {
       if (pinInput !== tournament.scorerPin && !isOrganizer) return alert("Invalid Scorer PIN");
-      await store.updateMatchScore(scoringMatch.id, scores, scoringMatch.participants);
-      setScoringMatch(null);
-      setShowPinModal(false);
-      setPinInput('');
-      await loadData();
+      try {
+        await store.updateMatchScore(scoringMatch.id, scores, scoringMatch.participants);
+        setScoringMatch(null);
+        setShowPinModal(false);
+        setPinInput('');
+        await loadData();
+      } catch (err) {
+        console.error("Error saving score:", err);
+      }
     }
   };
 
@@ -177,7 +204,7 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
           </button>
           <div>
             <h2 className="text-3xl font-black text-slate-800 tracking-tight italic uppercase">{tournament.name}</h2>
-            <p className="text-slate-400 font-black uppercase tracking-widest text-[10px]">ID: {tournament.uniqueId} • {tournament.venue} • {tournament.isLocked ? 'LOCKED' : 'DRAFT'}</p>
+            <p className="text-slate-400 font-black uppercase tracking-widest text-[10px]">ID: {tournament.uniqueId} • {tournament.venue} • {isLocked ? 'LOCKED' : 'DRAFT'}</p>
           </div>
         </div>
         <div className="flex space-x-2">
@@ -198,7 +225,7 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
 
       {activeTab === 'matches' && (
         <div className="space-y-6">
-           {isOrganizer && isLocked && (
+           {isOrganizer && (
              <div className="bg-indigo-600 p-8 rounded-[2rem] text-white shadow-xl">
                 <h4 className="text-[10px] font-black text-indigo-200 uppercase tracking-widest mb-6">Create New Tie-up</h4>
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
