@@ -10,23 +10,30 @@ interface AdminProps {
 const Admin: React.FC<AdminProps> = ({ user: currentUser }) => {
   const [users, setUsers] = useState<User[]>([]);
   const [requests, setRequests] = useState<CreditRequest[]>([]);
+  const [resetRequests, setResetRequests] = useState<User[]>([]);
   const [tournaments, setTournaments] = useState<Tournament[]>([]);
-  const [view, setView] = useState<'users' | 'requests' | 'tournaments'>('users');
+  const [view, setView] = useState<'users' | 'requests' | 'tournaments' | 'resets'>('users');
+  
   const [isAdjusting, setIsAdjusting] = useState<User | null>(null);
   const [adjustAmount, setAdjustAmount] = useState('0');
   const [adjustReason, setAdjustReason] = useState('Manual adjustment by Admin');
 
+  const [isResetting, setIsResetting] = useState<User | null>(null);
+  const [tempPassword, setTempPassword] = useState('');
+
   useEffect(() => { loadData(); }, []);
 
   async function loadData() {
-    const [allUsers, allRequests, allTourneys] = await Promise.all([
+    const [allUsers, allRequests, allTourneys, allResets] = await Promise.all([
       store.getAllUsers(), 
       store.getCreditRequests(),
-      store.getTournaments()
+      store.getTournaments(),
+      store.getResetRequests()
     ]);
     setUsers(allUsers);
     setRequests(allRequests);
     setTournaments(allTourneys);
+    setResetRequests(allResets);
   }
 
   const handleResolveRequest = async (id: string, approved: boolean) => {
@@ -48,6 +55,19 @@ const Admin: React.FC<AdminProps> = ({ user: currentUser }) => {
     } catch (err) {
       console.error("Adjustment failed", err);
       alert("Adjustment failed");
+    }
+  };
+
+  const handleCompleteReset = async () => {
+    if (!isResetting || !tempPassword) return;
+    try {
+      await store.completeReset(isResetting.id, tempPassword);
+      setIsResetting(null);
+      setTempPassword('');
+      alert("Password reset completed. User can now login with the new temporary password.");
+      await loadData();
+    } catch (err) {
+      alert("Failed to complete reset.");
     }
   };
 
@@ -86,6 +106,12 @@ const Admin: React.FC<AdminProps> = ({ user: currentUser }) => {
           onClick={() => setView('requests')} 
           label="Requests" 
           count={requests.length} 
+        />
+        <TabButton 
+          active={view === 'resets'} 
+          onClick={() => setView('resets')} 
+          label="Reset Req" 
+          count={resetRequests.length} 
         />
         <TabButton 
           active={view === 'tournaments'} 
@@ -142,6 +168,27 @@ const Admin: React.FC<AdminProps> = ({ user: currentUser }) => {
                  ))}
               </tbody>
            </table>
+        </div>
+      )}
+
+      {view === 'resets' && (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+           {resetRequests.map(u => (
+             <div key={u.id} className="bg-white p-8 rounded-3xl border border-slate-100 shadow-sm animate-in zoom-in">
+                <div className="flex items-center space-x-4 mb-6">
+                   <div className="w-12 h-12 bg-rose-50 text-rose-500 rounded-2xl flex items-center justify-center font-black text-xl">!</div>
+                   <div>
+                      <h4 className="font-black text-slate-800 uppercase tracking-tighter italic">{u.name}</h4>
+                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">@{u.username}</p>
+                   </div>
+                </div>
+                <button 
+                  onClick={() => setIsResetting(u)} 
+                  className="w-full bg-slate-900 text-white font-black py-4 rounded-xl uppercase tracking-widest text-[10px] shadow-lg active:scale-95 transition-all"
+                >Process Reset</button>
+             </div>
+           ))}
+           {resetRequests.length === 0 && <div className="col-span-full py-20 text-center bg-white rounded-[2rem] border border-dashed border-slate-200"><p className="text-slate-300 font-black uppercase tracking-widest text-xs">No pending reset requests.</p></div>}
         </div>
       )}
 
@@ -232,6 +279,31 @@ const Admin: React.FC<AdminProps> = ({ user: currentUser }) => {
               <div className="flex space-x-4">
                  <button onClick={handleManualAdjust} className="flex-grow bg-indigo-600 text-white font-black py-5 rounded-2xl uppercase tracking-widest text-xs shadow-xl active:scale-95 transition-all">Apply</button>
                  <button onClick={() => setIsAdjusting(null)} className="px-8 font-black text-slate-400 uppercase tracking-widest text-[10px]">Cancel</button>
+              </div>
+           </div>
+        </div>
+      )}
+
+      {isResetting && (
+        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-[300] flex items-center justify-center p-4">
+           <div className="bg-white rounded-[2.5rem] w-full max-w-md p-10 shadow-2xl animate-in zoom-in duration-300">
+              <h4 className="text-2xl font-black text-slate-800 text-center mb-2 italic uppercase tracking-tighter">Manual Password Reset</h4>
+              <p className="text-center text-slate-400 text-xs mb-8 uppercase tracking-widest font-bold">Setting temp password for @{isResetting.username}</p>
+              <div className="space-y-6 mb-10">
+                 <div>
+                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 block mb-2">Temporary Password</label>
+                   <input 
+                     type="text" 
+                     placeholder="NewSecurePass123"
+                     className="w-full p-5 bg-slate-50 rounded-2xl text-center text-xl font-black outline-none border-2 border-transparent focus:border-indigo-500 transition-all"
+                     value={tempPassword}
+                     onChange={e => setTempPassword(e.target.value)}
+                   />
+                 </div>
+              </div>
+              <div className="flex space-x-4">
+                 <button onClick={handleCompleteReset} disabled={!tempPassword} className="flex-grow bg-slate-900 text-white font-black py-5 rounded-2xl uppercase tracking-widest text-xs shadow-xl active:scale-95 transition-all disabled:opacity-50">Set New Password</button>
+                 <button onClick={() => { setIsResetting(null); setTempPassword(''); }} className="px-8 font-black text-slate-400 uppercase tracking-widest text-[10px]">Cancel</button>
               </div>
            </div>
         </div>

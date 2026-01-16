@@ -30,9 +30,23 @@ class DataService {
   async login(username: string, password: string): Promise<User | null> {
     try {
       const email = username.toLowerCase().trim() + SHADOW_DOMAIN;
-      const userCredential = await signInWithEmailAndPassword(auth, email, password);
-      const userDoc = await getDoc(doc(db, "users", userCredential.user.uid));
-      return userDoc.exists() ? (userDoc.data() as User) : null;
+      try {
+        // Try standard Firebase Auth first
+        const userCredential = await signInWithEmailAndPassword(auth, email, password);
+        const userDoc = await getDoc(doc(db, "users", userCredential.user.uid));
+        return userDoc.exists() ? (userDoc.data() as User) : null;
+      } catch (authError) {
+        // If auth fails, check for a manual temporary password override in Firestore
+        const q = query(collection(db, "users"), where("username", "==", username.toLowerCase().trim()));
+        const snapshot = await getDocs(q);
+        if (!snapshot.empty) {
+          const userData = snapshot.docs[0].data() as User;
+          if (userData.password === password) {
+            return userData;
+          }
+        }
+        throw authError;
+      }
     } catch (error) { throw error; }
   }
 
@@ -79,6 +93,19 @@ class DataService {
     if (!user) return false;
     await updateDoc(doc(db, "users", user.id), { resetRequested: true });
     return true;
+  }
+
+  async getResetRequests(): Promise<User[]> {
+    const q = query(collection(db, "users"), where("resetRequested", "==", true));
+    const snapshot = await getDocs(q);
+    return snapshot.docs.map(doc => doc.data() as User);
+  }
+
+  async completeReset(userId: string, newPassword: string) {
+    await updateDoc(doc(db, "users", userId), { 
+      password: newPassword, 
+      resetRequested: false 
+    });
   }
 
   async requestCredits(userId: string, username: string, amount: number) {
