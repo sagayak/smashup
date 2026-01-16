@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Tournament, User, UserRole, TournamentType, MatchFormat } from '../types';
 import { store } from '../services/mockStore';
@@ -76,7 +75,7 @@ const Tournaments: React.FC<{ user: User }> = ({ user }) => {
     
     setIsCreating(true);
     try {
-      const created = await store.addTournament({
+      await store.addTournament({
         ...newTourney,
         organizerId: user.id,
         status: 'UPCOMING',
@@ -91,11 +90,6 @@ const Tournaments: React.FC<{ user: User }> = ({ user }) => {
     } finally {
       setIsCreating(false);
     }
-  };
-
-  const handleRequestCredits = async () => {
-    await store.requestCredits(user.id, user.username, 200);
-    alert("Credit request sent!");
   };
 
   if (selectedTournament) {
@@ -138,9 +132,6 @@ const Tournaments: React.FC<{ user: User }> = ({ user }) => {
             {error && (
               <div className="bg-rose-50 border border-rose-100 p-4 rounded-2xl mb-6 flex items-center justify-between">
                 <p className="text-rose-500 font-black uppercase tracking-widest text-[10px]">{error}</p>
-                {user.credits < 200 && (
-                  <button onClick={handleRequestCredits} className="text-[10px] font-black uppercase text-indigo-600 underline">Request Credits</button>
-                )}
               </div>
             )}
 
@@ -150,7 +141,7 @@ const Tournaments: React.FC<{ user: User }> = ({ user }) => {
               <Input label="Start Date" type="date" value={newTourney.startDate} onChange={v => setNewTourney({...newTourney, startDate: v})} />
               <Input label="End Date" type="date" value={newTourney.endDate} onChange={v => setNewTourney({...newTourney, endDate: v})} />
               <Input label="Player Limit" type="number" value={newTourney.playerLimit} onChange={v => setNewTourney({...newTourney, playerLimit: parseInt(v)})} />
-              <Input label="Scorer Pin" maxLength={4} value={newTourney.scorerPin} onChange={v => setNewTourney({...newTourney, scorerPin: v})} placeholder="Default: 0000" />
+              <Input label="Scorer Pin" maxLength={4} value={newTourney.scorerPin} onChange={v => setNewTourney({...newTourney, scorerPin: v})} />
               <div className="space-y-1">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Access Level</label>
                 <select 
@@ -158,28 +149,9 @@ const Tournaments: React.FC<{ user: User }> = ({ user }) => {
                   value={newTourney.isPublic ? 'true' : 'false'} 
                   onChange={e => setNewTourney({...newTourney, isPublic: e.target.value === 'true'})}
                 >
-                  <option value="true">Public (Anyone can join)</option>
-                  <option value="false">Protected (Invite/Approval only)</option>
+                  <option value="true">Public (Open)</option>
+                  <option value="false">Protected (Invite Only)</option>
                 </select>
-              </div>
-              <div className="space-y-1">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Type & Format</label>
-                <div className="flex gap-2">
-                  <select 
-                    className="flex-1 p-3 bg-slate-50 rounded-xl font-bold border-2 border-slate-50 focus:border-indigo-500 outline-none"
-                    value={newTourney.type} onChange={e => setNewTourney({...newTourney, type: e.target.value as TournamentType})}
-                  >
-                    <option value={TournamentType.LEAGUE}>League</option>
-                    <option value={TournamentType.KNOCKOUT}>Knockout</option>
-                  </select>
-                  <select 
-                    className="flex-1 p-3 bg-slate-50 rounded-xl font-bold border-2 border-slate-50 focus:border-indigo-500 outline-none"
-                    value={newTourney.format} onChange={e => setNewTourney({...newTourney, format: e.target.value as MatchFormat})}
-                  >
-                    <option value={MatchFormat.SINGLES}>Singles</option>
-                    <option value={MatchFormat.DOUBLES}>Doubles</option>
-                  </select>
-                </div>
               </div>
             </div>
 
@@ -187,7 +159,7 @@ const Tournaments: React.FC<{ user: User }> = ({ user }) => {
               onClick={handleCreate} disabled={isCreating}
               className="w-full bg-indigo-600 text-white font-black py-5 rounded-3xl mt-10 hover:bg-indigo-700 transition-all shadow-xl shadow-indigo-100 uppercase tracking-widest text-sm"
             >
-              {isCreating ? 'Synchronizing Arena...' : 'Launch Tournament (200 Credits)'}
+              {isCreating ? 'Creating Arena...' : 'Launch Tournament'}
             </button>
           </div>
         </div>
@@ -202,24 +174,24 @@ const Tournaments: React.FC<{ user: User }> = ({ user }) => {
               <div className="flex justify-between items-start mb-6">
                  <span className="text-[10px] font-black uppercase tracking-widest text-indigo-500 bg-indigo-50 px-3 py-1 rounded-lg">ID: {t.uniqueId}</span>
                  <div className="flex space-x-1">
-                    <span className={`px-2 py-1 rounded-lg text-[8px] font-black uppercase tracking-widest ${t.isPublic ? 'bg-emerald-500 text-white' : 'bg-slate-200 text-slate-500'}`}>
+                    <span className={`px-2 py-1 rounded-lg text-[8px] font-black uppercase tracking-widest ${t.isPublic ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-100' : 'bg-rose-500 text-white shadow-lg shadow-rose-100'}`}>
                       {t.isPublic ? 'Public' : 'Protected'}
                     </span>
-                    <span className={`px-2 py-1 rounded-lg text-[8px] font-black uppercase tracking-widest ${t.isLocked ? 'bg-slate-900 text-white' : 'bg-green-100 text-green-600'}`}>
-                      {t.isLocked ? 'LOCKED' : 'OPEN'}
+                    <span className={`px-2 py-1 rounded-lg text-[8px] font-black uppercase tracking-widest ${t.isLocked ? 'bg-slate-900 text-white' : 'bg-slate-200 text-slate-500'}`}>
+                      {t.isLocked ? 'LOCKED' : 'DRAFT'}
                     </span>
                  </div>
               </div>
               <h4 className="text-2xl font-black text-slate-800 tracking-tighter mb-1 uppercase italic leading-none">{t.name}</h4>
               <p className="text-slate-400 font-bold text-[10px] uppercase tracking-widest mb-1">{t.venue}</p>
-              <p className="text-[9px] font-black text-indigo-400 uppercase tracking-widest mb-6 italic">Organized by: {organizer?.name || 'Unknown'}</p>
+              <p className="text-[9px] font-black text-indigo-600 uppercase tracking-widest mb-6 italic">Organized by: {organizer?.name || 'Loading...'}</p>
               
               {isMember ? (
                 <button 
                   onClick={() => setSelectedTournament(t)}
                   className="w-full bg-slate-50 text-slate-800 font-black py-3 rounded-xl uppercase tracking-widest text-[10px] group-hover:bg-indigo-600 group-hover:text-white transition-all flex items-center justify-center space-x-2"
                 >
-                  <span>Go to Dashboard</span>
+                  <span>Dashboard</span>
                   <span>→</span>
                 </button>
               ) : (
@@ -227,7 +199,7 @@ const Tournaments: React.FC<{ user: User }> = ({ user }) => {
                   onClick={() => handleJoinAction(t)}
                   className="w-full bg-indigo-600 text-white font-black py-3 rounded-xl uppercase tracking-widest text-[10px] shadow-lg shadow-indigo-100 hover:scale-[1.02] active:scale-95 transition-all"
                 >
-                  {t.isPublic ? 'Join Tournament' : 'Request Access'}
+                  {t.isPublic ? 'Join Now' : 'Request Access'}
                 </button>
               )}
 
@@ -238,11 +210,6 @@ const Tournaments: React.FC<{ user: User }> = ({ user }) => {
             </div>
           );
         })}
-        {tournaments.length === 0 && (
-          <div className="col-span-full py-24 text-center bg-white rounded-[2.5rem] border border-dashed border-slate-200">
-             <p className="text-slate-300 font-black uppercase tracking-widest text-xs">No tournaments visible to you. Search by ID to join.</p>
-          </div>
-        )}
       </div>
     </div>
   );
