@@ -30,6 +30,7 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
 
   // Players Tab State
   const [playerSearch, setPlayerSearch] = useState('');
+  const [rosterFilter, setRosterFilter] = useState('');
   const [isAddingPlayer, setIsAddingPlayer] = useState(false);
 
   // Team Form
@@ -159,6 +160,10 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
   };
 
   const handleStartMatch = async () => {
+    if (!tournament.isLocked) {
+      alert("Tournament must be LOCKED before initializing tie-ups. Please lock the tournament first.");
+      return;
+    }
     const tId = tournament.id || initialTournament.id;
     if (!tId) return alert("Tournament ID not found. Please refresh.");
     if (!selectedT1 || !selectedT2) return alert("Please select two teams for the tie-up.");
@@ -201,6 +206,38 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
     }
   };
 
+  const handleExportCSV = () => {
+    if (!tournament.playerPool || tournament.playerPool.length === 0) {
+      return alert("Roster is empty.");
+    }
+    
+    const headers = ["Name", "Username", "Registration Status"];
+    const rows = tournament.playerPool.map(p => [
+      p.name,
+      p.username || "N/A",
+      p.isRegistered ? "Registered" : "Guest"
+    ]);
+
+    const csvContent = [
+      headers.join(","),
+      ...rows.map(row => row.map(cell => `"${cell}"`).join(","))
+    ].join("\n");
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `${tournament.name.replace(/\s+/g, '_')}_PlayerList.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const filteredPool = tournament.playerPool?.filter(p => 
+    p.name.toLowerCase().includes(rosterFilter.toLowerCase()) || 
+    p.username?.toLowerCase().includes(rosterFilter.toLowerCase())
+  ) || [];
+
   return (
     <div className="space-y-8 pb-20">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -232,7 +269,15 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
       {activeTab === 'matches' && (
         <div className="space-y-6">
            {isOrganizer && (
-             <div className="bg-indigo-600 p-8 rounded-[2rem] text-white shadow-xl">
+             <div className="bg-indigo-600 p-8 rounded-[2rem] text-white shadow-xl relative overflow-hidden">
+                {!isLocked && (
+                  <div className="absolute inset-0 bg-indigo-900/60 backdrop-blur-[2px] z-10 flex items-center justify-center p-6 text-center">
+                    <div className="bg-white/10 p-6 rounded-3xl border border-white/20">
+                      <p className="font-black uppercase tracking-widest text-xs mb-2">Tie-ups Disabled</p>
+                      <p className="text-[10px] font-bold opacity-80 max-w-[200px]">You must Lock the tournament (above) before matches can be initialized.</p>
+                    </div>
+                  </div>
+                )}
                 <h4 className="text-[10px] font-black text-indigo-200 uppercase tracking-widest mb-6">Create New Tie-up</h4>
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
                   <select 
@@ -254,7 +299,7 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
                   </select>
                   <button 
                     onClick={handleStartMatch}
-                    disabled={!selectedT1 || !selectedT2 || selectedT1 === selectedT2}
+                    disabled={!selectedT1 || !selectedT2 || selectedT1 === selectedT2 || !isLocked}
                     className="bg-white text-indigo-600 p-4 rounded-2xl font-black text-xs uppercase shadow-lg active:scale-95 transition-all disabled:opacity-50"
                   >Initialize Match</button>
                 </div>
@@ -333,9 +378,32 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
              </div>
            )}
 
+           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white/50 p-4 rounded-[2rem] border border-slate-100">
+             <div className="px-4 flex items-center space-x-6">
+               <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest whitespace-nowrap">Roster List ({filteredPool.length})</h4>
+               <button 
+                onClick={handleExportCSV}
+                className="text-[9px] font-black text-indigo-600 hover:text-indigo-800 uppercase tracking-widest flex items-center space-x-1 border border-indigo-200 bg-indigo-50/50 px-3 py-1.5 rounded-lg transition-colors"
+               >
+                 <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                 <span>Export CSV</span>
+               </button>
+             </div>
+             <div className="relative w-full md:w-80">
+               <input 
+                 type="text" 
+                 placeholder="Search roster by name or @user..." 
+                 className="w-full p-4 pl-12 bg-white border border-slate-200 rounded-2xl shadow-sm outline-none focus:border-indigo-500 font-bold text-xs"
+                 value={rosterFilter}
+                 onChange={(e) => setRosterFilter(e.target.value)}
+               />
+               <svg className="w-5 h-5 absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+             </div>
+           </div>
+
            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-              {tournament.playerPool?.map((p, i) => (
-                <div key={i} className="bg-white p-5 rounded-2xl border border-slate-100 flex items-center justify-between shadow-sm group">
+              {filteredPool.map((p, i) => (
+                <div key={i} className="bg-white p-5 rounded-2xl border border-slate-100 flex items-center justify-between shadow-sm group hover:border-indigo-200 transition-all animate-in fade-in slide-in-from-bottom-2">
                    <div className="flex items-center space-x-3">
                       <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-black text-xs ${p.isRegistered ? 'bg-indigo-50 text-indigo-500' : 'bg-slate-100 text-slate-400'}`}>
                         {p.name[0]}
@@ -348,8 +416,10 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
                    </div>
                 </div>
               ))}
-              {(!tournament.playerPool || tournament.playerPool.length === 0) && (
-                <div className="col-span-full py-12 text-center text-slate-300 font-black uppercase tracking-widest text-xs">No players in roster.</div>
+              {filteredPool.length === 0 && (
+                <div className="col-span-full py-12 text-center text-slate-300 font-black uppercase tracking-widest text-xs bg-white rounded-[2rem] border border-dashed border-slate-100">
+                  {rosterFilter ? 'No results for search.' : 'No players in roster.'}
+                </div>
               )}
            </div>
         </div>
