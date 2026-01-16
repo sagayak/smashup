@@ -98,6 +98,13 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
     });
   };
 
+  const copyInviteLink = () => {
+    const link = `${window.location.origin}${window.location.pathname}?join=${tournament.uniqueId}`;
+    navigator.clipboard.writeText(link).then(() => {
+      alert("Invite link copied to clipboard!");
+    });
+  };
+
   // --- SCORING LOGIC ---
   const handleOpenScoreboard = (match: Match) => {
     setScoringMatch(match);
@@ -308,16 +315,21 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
   // --- ACCESS GUARD ---
   if (!isMember) {
     return (
-      <div className="flex flex-col items-center justify-center py-24 animate-in fade-in zoom-in bg-white rounded-[3rem] shadow-sm border border-slate-100">
-        <div className="w-40 h-40 bg-rose-50 rounded-[3rem] flex items-center justify-center mb-10 shadow-inner border border-rose-100">
+      <div className="flex flex-col items-center justify-center py-12 animate-in fade-in zoom-in bg-white rounded-[3rem] shadow-sm border border-slate-100 overflow-hidden relative">
+        {tournament.poster && (
+          <div className="absolute inset-0 opacity-10 pointer-events-none">
+            <img src={tournament.poster} className="w-full h-full object-cover blur-2xl" alt="" />
+          </div>
+        )}
+        <div className="w-40 h-40 bg-rose-50 rounded-[3rem] flex items-center justify-center mb-10 shadow-inner border border-rose-100 relative z-10">
            <svg className="w-20 h-20 text-rose-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
         </div>
-        <h3 className="text-5xl font-black text-slate-800 uppercase italic tracking-tighter mb-4 text-center px-4">Arena Protected</h3>
-        <p className="max-w-md text-center text-slate-400 font-bold leading-relaxed mb-12 px-8 text-lg">Join this arena to see match results and standings.</p>
-        <button onClick={handleJoinAction} disabled={isJoining} className="bg-indigo-600 text-white px-12 py-6 rounded-[2rem] font-black uppercase tracking-widest text-xs shadow-2xl hover:scale-[1.03] transition-all">
+        <h3 className="text-5xl font-black text-slate-800 uppercase italic tracking-tighter mb-4 text-center px-4 relative z-10">Arena Protected</h3>
+        <p className="max-w-md text-center text-slate-400 font-bold leading-relaxed mb-12 px-8 text-lg relative z-10">Join this arena to see match results and standings.</p>
+        <button onClick={handleJoinAction} disabled={isJoining} className="relative z-10 bg-indigo-600 text-white px-12 py-6 rounded-[2rem] font-black uppercase tracking-widest text-xs shadow-2xl hover:scale-[1.03] transition-all">
           {isJoining ? 'Processing...' : (tournament.isPublic ? 'Join Arena' : 'Request Entry')}
         </button>
-        <button onClick={onBack} className="mt-6 text-slate-400 font-black uppercase tracking-widest text-[11px]">Back to Lobby</button>
+        <button onClick={onBack} className="relative z-10 mt-6 text-slate-400 font-black uppercase tracking-widest text-[11px]">Back to Lobby</button>
       </div>
     );
   }
@@ -332,12 +344,19 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="flex items-center space-x-4">
           <button onClick={onBack} className="p-3 hover:bg-white rounded-2xl transition-all shadow-sm border border-slate-100 bg-white hover:scale-110 active:scale-90"><svg className="w-6 h-6 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg></button>
-          <div>
-            <h2 className="text-4xl font-black text-slate-800 tracking-tight italic uppercase leading-none">{tournament.name}</h2>
-            <p className="text-slate-400 font-black uppercase tracking-widest text-[10px] mt-2 italic">ID: {tournament.uniqueId} • {tournament.venue}</p>
+          <div className="flex items-center space-x-4">
+            {tournament.poster && <img src={tournament.poster} className="w-16 h-16 rounded-2xl object-cover shadow-lg border-2 border-white" alt="" />}
+            <div>
+              <h2 className="text-4xl font-black text-slate-800 tracking-tight italic uppercase leading-none">{tournament.name}</h2>
+              <p className="text-slate-400 font-black uppercase tracking-widest text-[10px] mt-2 italic">ID: {tournament.uniqueId} • {tournament.venue}</p>
+            </div>
           </div>
         </div>
         <div className="flex space-x-3">
+          <button onClick={copyInviteLink} className="bg-indigo-50 text-indigo-600 px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest border border-indigo-100 shadow-sm hover:bg-indigo-100 transition-all flex items-center gap-2">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" /></svg>
+            Share Invite
+          </button>
           {isOrganizer && !isLocked && <button onClick={handleLock} className="bg-slate-900 text-white px-8 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl">Lock Arena</button>}
           <div className="bg-white border border-slate-100 text-slate-800 px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-sm italic">{tournament.status}</div>
         </div>
@@ -493,7 +512,7 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             {filteredPool.map((p, i) => (
               <div key={i} className="bg-white p-6 rounded-3xl border border-slate-100 flex items-center justify-between group hover:border-indigo-200 transition-all">
-                <div className="flex items-center space-x-4"><div className="w-10 h-10 bg-slate-50 rounded-xl flex items-center justify-center font-black text-slate-400">{p.name[0]}</div><div><p className="font-black text-slate-800 uppercase italic text-xs leading-tight">{p.name}</p>{p.username && <p className="text-[9px] font-black text-slate-400 mt-0.5">@{p.username}</p>}</div></div>
+                <div className="flex items-center space-x-4"><div className="w-10 h-10 bg-slate-100 rounded-xl flex items-center justify-center font-black text-slate-400">{p.name[0]}</div><div><p className="font-black text-slate-800 uppercase italic text-xs leading-tight">{p.name}</p>{p.username && <p className="text-[9px] font-black text-slate-400 mt-0.5">@{p.username}</p>}</div></div>
                 {isOrganizer && <button onClick={() => handleDeletePlayerFromPool(i)} className="text-rose-500 font-black text-[9px] opacity-0 group-hover:opacity-100 transition-opacity uppercase tracking-widest hover:underline">Delete</button>}
               </div>
             ))}

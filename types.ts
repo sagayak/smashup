@@ -66,6 +66,7 @@ export interface Tournament {
   scorerPin: string; 
   playerPool: TournamentPlayer[]; // Tournament-specific player roster
   rankingCriteriaOrder: RankingCriterion[];
+  poster?: string; // Base64 encoded poster image
 }
 
 export type RankingCriterion = 'MATCHES_WON' | 'SETS_WON' | 'POINTS_DIFF' | 'HEAD_TO_HEAD';

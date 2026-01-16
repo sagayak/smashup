@@ -1,6 +1,5 @@
-
 import React, { useState, useEffect } from 'react';
-import { User, UserRole } from './types';
+import { User, UserRole, Tournament } from './types';
 import { store } from './services/mockStore';
 import Layout from './components/Layout';
 import Dashboard from './pages/Dashboard';
@@ -13,6 +12,8 @@ const App: React.FC = () => {
   const [isAuth, setIsAuth] = useState(false);
   const [authMode, setAuthMode] = useState<'login' | 'signup' | 'reset'>('login');
   const [loading, setLoading] = useState(false);
+  const [pendingJoinId, setPendingJoinId] = useState<string | null>(null);
+  const [invitedTournament, setInvitedTournament] = useState<Tournament | null>(null);
   
   // Auth Form State
   const [username, setUsername] = useState('');
@@ -21,6 +22,18 @@ const App: React.FC = () => {
   const [role, setRole] = useState<UserRole>(UserRole.PLAYER);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+
+  // Handle Join Link
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const joinId = params.get('join');
+    if (joinId) {
+      setPendingJoinId(joinId);
+      store.searchTournamentById(joinId).then(t => {
+        if (t) setInvitedTournament(t);
+      });
+    }
+  }, []);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -31,6 +44,9 @@ const App: React.FC = () => {
       if (user) {
         setCurrentUser(user);
         setIsAuth(true);
+        if (pendingJoinId) {
+          setActiveTab('tournaments');
+        }
       } else {
         setError('User profile not found.');
       }
@@ -54,8 +70,18 @@ const App: React.FC = () => {
         role
       });
       if (newUser) {
-        setAuthMode('login');
-        setSuccess('Signup successful! Please login.');
+        // Automatically login after signup if invited
+        const user = await store.login(username, password);
+        if (user) {
+          setCurrentUser(user);
+          setIsAuth(true);
+          if (pendingJoinId) {
+            setActiveTab('tournaments');
+          }
+        } else {
+          setAuthMode('login');
+          setSuccess('Signup successful! Please login.');
+        }
       }
     } catch (err: any) {
       setError(err.message || 'Signup failed. Username might be taken.');
@@ -88,13 +114,25 @@ const App: React.FC = () => {
     setIsAuth(false);
     setUsername('');
     setPassword('');
+    // Clear invite if logging out
+    setPendingJoinId(null);
+    setInvitedTournament(null);
   };
 
   if (!isAuth) {
     return (
       <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
-        <div className="max-w-md w-full bg-white rounded-[2rem] p-10 shadow-2xl animate-in zoom-in duration-300">
-          <div className="text-center mb-8">
+        <div className="max-w-md w-full bg-white rounded-[2rem] p-10 shadow-2xl animate-in zoom-in duration-300 relative overflow-hidden">
+          {invitedTournament && (
+            <div className="absolute top-0 left-0 right-0 bg-indigo-600 p-4 text-center">
+               <p className="text-white text-[10px] font-black uppercase tracking-widest leading-none">
+                 You've been invited to join
+               </p>
+               <h4 className="text-white font-black text-sm uppercase italic tracking-tighter mt-1">{invitedTournament.name}</h4>
+            </div>
+          )}
+          
+          <div className={`text-center mb-8 ${invitedTournament ? 'mt-12' : ''}`}>
             <div className="w-20 h-20 bg-indigo-600 rounded-3xl flex items-center justify-center mx-auto mb-6 shadow-xl shadow-indigo-200 rotate-3">
                <svg className="w-12 h-12 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
             </div>
@@ -166,7 +204,7 @@ const App: React.FC = () => {
       setActiveTab={setActiveTab}
     >
       {activeTab === 'dashboard' && currentUser && <Dashboard user={currentUser} />}
-      {activeTab === 'tournaments' && currentUser && <Tournaments user={currentUser} />}
+      {activeTab === 'tournaments' && currentUser && <Tournaments user={currentUser} initialJoinId={pendingJoinId} />}
       {activeTab === 'admin' && currentUser && <Admin user={currentUser} />}
       {activeTab === 'profile' && (
         <div className="bg-white p-12 rounded-[2rem] shadow-sm border border-slate-100 text-center animate-in fade-in slide-in-from-bottom duration-500">

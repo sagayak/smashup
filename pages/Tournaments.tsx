@@ -1,9 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Tournament, User, UserRole, TournamentType, MatchFormat } from '../types';
 import { store } from '../services/mockStore';
 import TournamentDetails from './TournamentDetails';
 
-const Tournaments: React.FC<{ user: User }> = ({ user }) => {
+const Tournaments: React.FC<{ user: User, initialJoinId?: string | null }> = ({ user, initialJoinId }) => {
   const [tournaments, setTournaments] = useState<Tournament[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [selectedTournament, setSelectedTournament] = useState<Tournament | null>(null);
@@ -11,14 +11,22 @@ const Tournaments: React.FC<{ user: User }> = ({ user }) => {
   const [isCreating, setIsCreating] = useState(false);
   const [error, setError] = useState('');
   const [searchId, setSearchId] = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
   
   const [newTourney, setNewTourney] = useState<Partial<Tournament>>({
     name: '', venue: '', startDate: '', endDate: '',
     type: TournamentType.LEAGUE, format: MatchFormat.SINGLES,
-    numCourts: 2, isPublic: true, playerLimit: 32, scorerPin: '0000'
+    numCourts: 2, isPublic: true, playerLimit: 32, scorerPin: '0000',
+    poster: ''
   });
 
-  useEffect(() => { loadData(); }, []);
+  useEffect(() => { 
+    loadData().then(() => {
+      if (initialJoinId) {
+        handleJoinFromLink(initialJoinId);
+      }
+    }); 
+  }, []);
 
   async function loadData() {
     const [allTourneys, allUsers] = await Promise.all([
@@ -27,9 +35,17 @@ const Tournaments: React.FC<{ user: User }> = ({ user }) => {
     ]);
     
     setUsers(allUsers);
-    // User requested: Anybody can see all tournaments in the list
     setTournaments(allTourneys.sort((a, b) => new Date(b.startDate).getTime() - new Date(a.startDate).getTime()));
   }
+
+  const handleJoinFromLink = async (uniqueId: string) => {
+    const t = await store.searchTournamentById(uniqueId);
+    if (t) {
+      setSelectedTournament(t);
+      // Clean up URL after successful redirect
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+  };
 
   const handleSearch = async () => {
     if (!searchId) return;
@@ -38,6 +54,17 @@ const Tournaments: React.FC<{ user: User }> = ({ user }) => {
        setSelectedTournament(t);
     } else {
       setError("Tournament ID not found");
+    }
+  };
+
+  const handlePosterUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setNewTourney({ ...newTourney, poster: reader.result as string });
+      };
+      reader.readAsDataURL(file);
     }
   };
 
@@ -110,6 +137,23 @@ const Tournaments: React.FC<{ user: User }> = ({ user }) => {
             )}
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="col-span-full space-y-2">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Tournament Poster</label>
+                <div 
+                  onClick={() => fileInputRef.current?.click()}
+                  className="w-full h-48 bg-slate-50 border-2 border-dashed border-slate-200 rounded-[2rem] flex flex-col items-center justify-center cursor-pointer hover:border-indigo-400 transition-all overflow-hidden relative"
+                >
+                  {newTourney.poster ? (
+                    <img src={newTourney.poster} className="w-full h-full object-cover" alt="Poster Preview" />
+                  ) : (
+                    <>
+                      <svg className="w-12 h-12 text-slate-300 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                      <span className="text-[10px] font-black uppercase text-slate-400">Click to Upload Visual</span>
+                    </>
+                  )}
+                  <input type="file" ref={fileInputRef} onChange={handlePosterUpload} className="hidden" accept="image/*" />
+                </div>
+              </div>
               <Input label="Tournament Name" value={newTourney.name} onChange={v => setNewTourney({...newTourney, name: v})} />
               <Input label="Venue" value={newTourney.venue} onChange={v => setNewTourney({...newTourney, venue: v})} />
               <Input label="Start Date" type="date" value={newTourney.startDate} onChange={v => setNewTourney({...newTourney, startDate: v})} />
@@ -144,33 +188,42 @@ const Tournaments: React.FC<{ user: User }> = ({ user }) => {
           const isMember = (t.participants || []).includes(user.username) || t.organizerId === user.id || user.role === UserRole.SUPERADMIN;
           const organizer = users.find(u => u.id === t.organizerId);
           return (
-            <div key={t.id} className="bg-white p-8 rounded-[2rem] border border-slate-100 shadow-sm hover:shadow-2xl transition-all group overflow-hidden relative">
-              <div className="flex justify-between items-start mb-6">
-                 <span className="text-[10px] font-black uppercase tracking-widest text-indigo-500 bg-indigo-50 px-3 py-1 rounded-lg">ID: {t.uniqueId}</span>
-                 <div className="flex space-x-1">
-                    <span className={`px-2 py-1 rounded-lg text-[8px] font-black uppercase tracking-widest ${t.isPublic ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-100' : 'bg-rose-500 text-white shadow-lg shadow-rose-100'}`}>
-                      {t.isPublic ? 'Public' : 'Protected'}
-                    </span>
-                    <span className={`px-2 py-1 rounded-lg text-[8px] font-black uppercase tracking-widest ${t.isLocked ? 'bg-slate-900 text-white' : 'bg-slate-200 text-slate-500'}`}>
-                      {t.isLocked ? 'LOCKED' : 'DRAFT'}
-                    </span>
+            <div key={t.id} className="bg-white p-0 rounded-[2.5rem] border border-slate-100 shadow-sm hover:shadow-2xl transition-all group overflow-hidden relative">
+              <div className="h-40 bg-slate-200 overflow-hidden relative">
+                 {t.poster ? (
+                   <img src={t.poster} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" alt={t.name} />
+                 ) : (
+                   <div className="w-full h-full bg-gradient-to-br from-indigo-500 to-indigo-900 flex items-center justify-center">
+                     <svg className="w-16 h-16 text-white/20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                   </div>
+                 )}
+                 <div className="absolute top-4 left-4 right-4 flex justify-between items-start">
+                    <span className="text-[9px] font-black uppercase tracking-widest text-white bg-slate-900/40 backdrop-blur-md px-3 py-1 rounded-lg">ID: {t.uniqueId}</span>
+                    <div className="flex space-x-1">
+                        <span className={`px-2 py-1 rounded-lg text-[8px] font-black uppercase tracking-widest ${t.isPublic ? 'bg-emerald-500 text-white' : 'bg-rose-500 text-white'}`}>
+                          {t.isPublic ? 'Public' : 'Protected'}
+                        </span>
+                    </div>
                  </div>
               </div>
-              <h4 className="text-2xl font-black text-slate-800 tracking-tighter mb-1 uppercase italic leading-none">{t.name}</h4>
-              <p className="text-slate-400 font-bold text-[10px] uppercase tracking-widest mb-1">{t.venue}</p>
-              <p className="text-[9px] font-black text-indigo-600 uppercase tracking-widest mb-6 italic">Organized by: {organizer?.name || 'Loading...'}</p>
-              
-              <button 
-                onClick={() => setSelectedTournament(t)}
-                className={`w-full font-black py-3 rounded-xl uppercase tracking-widest text-[10px] transition-all flex items-center justify-center space-x-2 ${isMember ? 'bg-slate-900 text-white shadow-lg' : 'bg-indigo-600 text-white shadow-xl shadow-indigo-100 hover:scale-[1.02]'}`}
-              >
-                <span>{isMember ? 'Dashboard' : 'Open Arena'}</span>
-                <span>→</span>
-              </button>
 
-              <div className="mt-4 pt-4 border-t border-slate-50 flex justify-between items-center text-[9px] font-black text-slate-400 uppercase tracking-widest">
-                 <span>{t.format} • {t.type}</span>
-                 <span>{(t.participants || []).length}/{t.playerLimit} Slots</span>
+              <div className="p-8">
+                <h4 className="text-2xl font-black text-slate-800 tracking-tighter mb-1 uppercase italic leading-none">{t.name}</h4>
+                <p className="text-slate-400 font-bold text-[10px] uppercase tracking-widest mb-1">{t.venue}</p>
+                <p className="text-[9px] font-black text-indigo-600 uppercase tracking-widest mb-6 italic">Organized by: {organizer?.name || 'Loading...'}</p>
+                
+                <button 
+                  onClick={() => setSelectedTournament(t)}
+                  className={`w-full font-black py-4 rounded-2xl uppercase tracking-widest text-[10px] transition-all flex items-center justify-center space-x-2 ${isMember ? 'bg-slate-900 text-white shadow-lg' : 'bg-indigo-600 text-white shadow-xl shadow-indigo-100 hover:scale-[1.02]'}`}
+                >
+                  <span>{isMember ? 'Enter Arena' : 'Join Arena'}</span>
+                  <span>→</span>
+                </button>
+
+                <div className="mt-6 pt-6 border-t border-slate-50 flex justify-between items-center text-[9px] font-black text-slate-400 uppercase tracking-widest">
+                   <span>{t.format} • {t.type}</span>
+                   <span>{(t.participants || []).length}/{t.playerLimit} Slots</span>
+                </div>
               </div>
             </div>
           );
