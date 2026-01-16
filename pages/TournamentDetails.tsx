@@ -287,10 +287,20 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
   const handleJoinAction = async () => {
     setIsJoining(true);
     try {
-      if (tournament.isPublic) { await store.joinTournament(tournament.id, user); alert("Joined Arena!"); }
-      else { await store.requestJoinTournament(tournament.id, user); alert("Join Request Sent!"); }
+      if (tournament.isPublic) { 
+        await store.joinTournament(tournament.id, user); 
+        alert("Joined Arena!"); 
+      }
+      else { 
+        await store.requestJoinTournament(tournament.id, user); 
+        alert("Join Request Sent!"); 
+      }
       await loadData();
-    } finally { setIsJoining(false); }
+    } catch (e: any) {
+      alert(e.message);
+    } finally { 
+      setIsJoining(false); 
+    }
   };
 
   // --- ACCESS GUARD ---
@@ -298,7 +308,7 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
     return (
       <div className="flex flex-col items-center justify-center py-24 animate-in fade-in zoom-in bg-white rounded-[3rem] shadow-sm border border-slate-100">
         <div className="w-40 h-40 bg-rose-50 rounded-[3rem] flex items-center justify-center mb-10 shadow-inner border border-rose-100">
-           <svg className="w-20 h-20 text-rose-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
+           <svg className="w-20 h-20 text-rose-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
         </div>
         <h3 className="text-5xl font-black text-slate-800 uppercase italic tracking-tighter mb-4 text-center px-4">Arena Protected</h3>
         <p className="max-w-md text-center text-slate-400 font-bold leading-relaxed mb-12 px-8 text-lg">Join this arena to see match results and standings.</p>

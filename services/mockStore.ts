@@ -1,4 +1,3 @@
-
 import { 
   collection, 
   doc, 
@@ -31,12 +30,10 @@ class DataService {
     try {
       const email = username.toLowerCase().trim() + SHADOW_DOMAIN;
       try {
-        // Try standard Firebase Auth first
         const userCredential = await signInWithEmailAndPassword(auth, email, password);
         const userDoc = await getDoc(doc(db, "users", userCredential.user.uid));
         return userDoc.exists() ? (userDoc.data() as User) : null;
       } catch (authError) {
-        // If auth fails, check for a manual temporary password override in Firestore
         const q = query(collection(db, "users"), where("username", "==", username.toLowerCase().trim()));
         const snapshot = await getDocs(q);
         if (!snapshot.empty) {
@@ -155,21 +152,15 @@ class DataService {
 
   async deleteTournament(tournamentId: string) {
     const batch = writeBatch(db);
-    
-    // 1. Delete main tournament doc
     batch.delete(doc(db, "tournaments", tournamentId));
-
-    // 2. Fetch and add related items to batch
     const [matchesSnap, teamsSnap, joinReqSnap] = await Promise.all([
       getDocs(query(collection(db, "matches"), where("tournamentId", "==", tournamentId))),
       getDocs(query(collection(db, "teams"), where("tournamentId", "==", tournamentId))),
       getDocs(query(collection(db, "joinRequests"), where("tournamentId", "==", tournamentId)))
     ]);
-
     matchesSnap.forEach(d => batch.delete(d.ref));
     teamsSnap.forEach(d => batch.delete(d.ref));
     joinReqSnap.forEach(d => batch.delete(d.ref));
-
     await batch.commit();
   }
 
@@ -180,12 +171,33 @@ class DataService {
   }
 
   async joinTournament(tournamentId: string, user: User) {
+    const tDoc = await getDoc(doc(db, "tournaments", tournamentId));
+    if (!tDoc.exists()) throw new Error("Arena not found");
+    const tData = tDoc.data() as Tournament;
+    if ((tData.participants || []).includes(user.username)) {
+      throw new Error("player is already there");
+    }
     await updateDoc(doc(db, "tournaments", tournamentId), {
       participants: arrayUnion(user.username)
     });
   }
 
   async requestJoinTournament(tournamentId: string, user: User) {
+    const tDoc = await getDoc(doc(db, "tournaments", tournamentId));
+    if (!tDoc.exists()) throw new Error("Arena not found");
+    const tData = tDoc.data() as Tournament;
+    if ((tData.participants || []).includes(user.username)) {
+      throw new Error("player is already there");
+    }
+
+    const q = query(collection(db, "joinRequests"), 
+      where("tournamentId", "==", tournamentId), 
+      where("username", "==", user.username), 
+      where("status", "==", "PENDING")
+    );
+    const existing = await getDocs(q);
+    if (!existing.empty) throw new Error("Join request already pending");
+
     await addDoc(collection(db, "joinRequests"), {
       tournamentId,
       userId: user.id,
@@ -203,12 +215,17 @@ class DataService {
   }
 
   async resolveJoinRequest(requestId: string, tournamentId: string, username: string, approved: boolean) {
+    const batch = writeBatch(db);
+    const reqRef = doc(db, "joinRequests", requestId);
+    const tourneyRef = doc(db, "tournaments", tournamentId);
+
     if (approved) {
-      await updateDoc(doc(db, "tournaments", tournamentId), {
+      batch.update(tourneyRef, {
         participants: arrayUnion(username)
       });
     }
-    await updateDoc(doc(db, "joinRequests", requestId), { status: approved ? 'APPROVED' : 'REJECTED' });
+    batch.update(reqRef, { status: approved ? 'APPROVED' : 'REJECTED' });
+    await batch.commit();
   }
 
   async updateTournamentPool(id: string, pool: TournamentPlayer[]) {
