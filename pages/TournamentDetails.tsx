@@ -41,21 +41,29 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
   // Match Config
   const [matchConfig, setMatchConfig] = useState({ points: 21, bestOf: 3, court: 1 });
 
-  useEffect(() => { loadData(); }, [initialTournament.id]);
+  useEffect(() => { 
+    if (initialTournament?.id) {
+      loadData(); 
+    }
+  }, [initialTournament?.id]);
 
   // Sync teams selection when teams list loads
   useEffect(() => {
     if (teams.length >= 2) {
-      if (!selectedT1 || !teams.find(t => t.id === selectedT1)) {
+      const t1StillExists = teams.some(t => t.id === selectedT1);
+      const t2StillExists = teams.some(t => t.id === selectedT2);
+      
+      if (!selectedT1 || !t1StillExists) {
         setSelectedT1(teams[0].id);
       }
-      if (!selectedT2 || !teams.find(t => t.id === selectedT2)) {
+      if (!selectedT2 || !t2StillExists) {
         setSelectedT2(teams[1].id);
       }
     }
   }, [teams]);
 
   const loadData = async () => {
+    if (!initialTournament?.id) return;
     try {
       const [m, t, s, u, tourneys] = await Promise.all([
         store.getMatchesByTournament(initialTournament.id),
@@ -157,26 +165,34 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
   };
 
   const handleStartMatch = async () => {
+    const tId = tournament.id || initialTournament.id;
+    if (!tId) return alert("Tournament ID not found. Please refresh.");
     if (!selectedT1 || !selectedT2) return alert("Please select two teams for the tie-up.");
     if (selectedT1 === selectedT2) return alert("A team cannot play against itself!");
     
     try {
-      const setsCount = Number(matchConfig.bestOf) || 3;
-      await store.createMatch({
-        tournamentId: tournament.id,
+      // Force configuration to numbers to prevent Firestore NaN/type errors
+      const setsCount = Math.max(1, Number(matchConfig.bestOf) || 3);
+      const pointsPerSet = Number(matchConfig.points) || 21;
+      const courtNumber = Number(matchConfig.court) || 1;
+      
+      const matchData: Omit<Match, 'id'> = {
+        tournamentId: tId,
         participants: [selectedT1, selectedT2],
-        scores: Array(setsCount).fill(null).map(() => [0, 0]),
-        status: MatchStatus.SCHEDULED,
-        court: Number(matchConfig.court) || 1,
+        scores: Array.from({ length: setsCount }, () => [0, 0]),
+        status: 'SCHEDULED' as MatchStatus,
+        court: courtNumber,
         startTime: new Date().toISOString(),
-        pointsOption: Number(matchConfig.points) || 21,
+        pointsOption: pointsPerSet,
         bestOf: setsCount
-      });
+      };
+
+      await store.createMatch(matchData);
       await loadData();
       alert("Tie-up initialized successfully!");
-    } catch (e) {
+    } catch (e: any) {
       console.error("Match creation failed:", e);
-      alert("Failed to initialize tie-up. Check console for details.");
+      alert(`Failed to initialize tie-up: ${e.message || 'Check connection or permissions'}`);
     }
   };
 
