@@ -281,16 +281,15 @@ class DataService {
     let p2Sets = 0;
 
     scores.forEach(s => {
-      // Logic: Reach pointsOption and lead by 2, OR reach goldenPoint
       const s1Won = (s.s1 >= pointsOption && (s.s1 - s.s2) >= 2) || (s.s1 >= goldenPoint);
       const s2Won = (s.s2 >= pointsOption && (s.s2 - s.s1) >= 2) || (s.s2 >= goldenPoint);
-      
       if (s1Won) p1Sets++;
       else if (s2Won) p2Sets++;
     });
 
-    // Match is complete if one team wins more than half the max sets
-    const isComplete = p1Sets > bestOf / 2 || p2Sets > bestOf / 2;
+    const setsRequired = Math.ceil((bestOf + 1) / 2);
+    const isComplete = p1Sets >= setsRequired || p2Sets >= setsRequired;
+    
     const updateData: any = { scores };
     
     if (isComplete) {
@@ -337,7 +336,6 @@ class DataService {
           t2.pointsScored += s.s2;
           t2.pointsConceded += s.s1;
           
-          // Re-evaluate sets won using same logic as updateMatchScore
           const s1Won = (s.s1 >= m.pointsOption && (s.s1 - s.s2) >= 2) || (s.s1 >= m.goldenPoint);
           const s2Won = (s.s2 >= m.pointsOption && (s.s2 - s.s1) >= 2) || (s.s2 >= m.goldenPoint);
           if (s1Won) t1Sets++;
