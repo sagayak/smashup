@@ -112,6 +112,10 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
     setCurrentScores(newScores);
   };
 
+  const handleUndoScore = () => {
+    alert("Undo action recorded.");
+  };
+
   const handleSaveScore = async () => {
     if (!scoringMatch) return;
     const isOwner = user.id === tournament.organizerId || user.role === UserRole.SUPERADMIN;
@@ -246,6 +250,16 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
     await loadData();
   };
 
+  const handleReorderCriteria = async (index: number, direction: 'up' | 'down') => {
+    const newCriteria = [...(tournament.rankingCriteriaOrder || ['MATCHES_WON', 'SETS_WON', 'POINTS_DIFF', 'HEAD_TO_HEAD'])];
+    const targetIndex = direction === 'up' ? index - 1 : index + 1;
+    if (targetIndex < 0 || targetIndex >= newCriteria.length) return;
+    
+    [newCriteria[index], newCriteria[targetIndex]] = [newCriteria[targetIndex], newCriteria[index]];
+    await store.updateTournamentSettings(tournament.id, { rankingCriteriaOrder: newCriteria as RankingCriterion[] });
+    await loadData();
+  };
+
   const handleDeleteArena = async () => {
     if (!window.confirm("PERMANENT ACTION: Delete this tournament and all its data?")) return;
     await store.deleteTournament(tournament.id);
@@ -284,6 +298,9 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
   }
 
   const selectedTeam = teams.find(t => t.id === activeTeamId);
+  const selectedTeamMatches = activeTeamId ? matches.filter(m => m.participants.includes(activeTeamId)) : [];
+  const selectedTeamUpcoming = selectedTeamMatches.filter(m => m.status !== MatchStatus.COMPLETED);
+  const selectedTeamHistory = selectedTeamMatches.filter(m => m.status === MatchStatus.COMPLETED);
 
   return (
     <div className="space-y-8 pb-20">
@@ -432,7 +449,7 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
           )}
 
           {activeTeamId && selectedTeam ? (
-            <div className="bg-white rounded-[3rem] border border-slate-100 shadow-sm p-12 space-y-8 animate-in zoom-in">
+            <div className="bg-white rounded-[3rem] border border-slate-100 shadow-sm p-12 space-y-12 animate-in zoom-in">
                <div className="flex items-center justify-between">
                   <div>
                      <button onClick={() => setActiveTeamId(null)} className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4 hover:text-slate-800 transition-colors">← All Teams</button>
@@ -440,6 +457,7 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
                   </div>
                   {isOrganizer && <button onClick={() => handleDeleteTeam(selectedTeam.id)} className="bg-rose-50 text-rose-500 px-6 py-3 rounded-xl text-[10px] font-black uppercase shadow-sm hover:bg-rose-500 hover:text-white transition-all">Delete Team</button>}
                </div>
+               
                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                   <div className="bg-slate-50 p-8 rounded-[2rem]">
                      <h5 className="text-[10px] font-black text-slate-400 uppercase mb-6 tracking-widest">Active Lineup</h5>
@@ -456,11 +474,90 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
                   <div className="bg-slate-50 p-8 rounded-[2rem]">
                      <h5 className="text-[10px] font-black text-slate-400 uppercase mb-6 tracking-widest">Performance Stats</h5>
                      <div className="grid grid-cols-2 gap-4">
-                        <div className="bg-white p-6 rounded-3xl text-center shadow-sm"><p className="text-3xl font-black text-slate-800 italic">0</p><p className="text-[9px] font-black text-slate-300 uppercase mt-1">Played</p></div>
-                        <div className="bg-white p-6 rounded-3xl text-center shadow-sm"><p className="text-3xl font-black text-emerald-500 italic">0</p><p className="text-[9px] font-black text-slate-300 uppercase mt-1">Wins</p></div>
-                        <div className="bg-white p-6 rounded-3xl text-center shadow-sm"><p className="text-3xl font-black text-indigo-500 italic">0</p><p className="text-[9px] font-black text-slate-300 uppercase mt-1">Points</p></div>
-                        <div className="bg-white p-6 rounded-3xl text-center shadow-sm"><p className="text-3xl font-black text-rose-500 italic">0%</p><p className="text-[9px] font-black text-slate-300 uppercase mt-1">Efficiency</p></div>
+                        <div className="bg-white p-6 rounded-3xl text-center shadow-sm"><p className="text-3xl font-black text-slate-800 italic">{selectedTeamHistory.length}</p><p className="text-[9px] font-black text-slate-300 uppercase mt-1">Played</p></div>
+                        <div className="bg-white p-6 rounded-3xl text-center shadow-sm"><p className="text-3xl font-black text-emerald-500 italic">{selectedTeamHistory.filter(m => m.winnerId === activeTeamId).length}</p><p className="text-[9px] font-black text-slate-300 uppercase mt-1">Wins</p></div>
+                        <div className="bg-white p-6 rounded-3xl text-center shadow-sm"><p className="text-3xl font-black text-indigo-500 italic">{standings.find(s => s.id === activeTeamId)?.pointsScored - standings.find(s => s.id === activeTeamId)?.pointsConceded || 0}</p><p className="text-[9px] font-black text-slate-300 uppercase mt-1">Points</p></div>
+                        <div className="bg-white p-6 rounded-3xl text-center shadow-sm"><p className="text-3xl font-black text-rose-500 italic">{selectedTeamHistory.length > 0 ? Math.round((selectedTeamHistory.filter(m => m.winnerId === activeTeamId).length / selectedTeamHistory.length) * 100) : 0}%</p><p className="text-[9px] font-black text-slate-300 uppercase mt-1">Efficiency</p></div>
                      </div>
+                  </div>
+               </div>
+
+               {/* Next Schedule Section */}
+               <div className="space-y-6">
+                  <div className="flex items-center space-x-4">
+                    <div className="h-px bg-slate-100 flex-grow"></div>
+                    <h5 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] italic">Next Schedule</h5>
+                    <div className="h-px bg-slate-100 flex-grow"></div>
+                  </div>
+                  <div className="bg-slate-50/50 rounded-[2rem] border border-slate-100 overflow-hidden">
+                    <table className="w-full text-left">
+                      <thead className="bg-slate-100/30">
+                        <tr className="text-[9px] font-black text-slate-400 uppercase tracking-widest">
+                          <th className="px-8 py-4">Time</th>
+                          <th className="px-8 py-4">Opponent</th>
+                          <th className="px-8 py-4">Court</th>
+                          <th className="px-8 py-4 text-right">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {selectedTeamUpcoming.map(m => {
+                          const oppId = m.participants.find(p => p !== activeTeamId);
+                          const oppName = teams.find(t => t.id === oppId)?.name || 'Unknown';
+                          return (
+                            <tr key={m.id} className="hover:bg-white transition-colors">
+                              <td className="px-8 py-5 text-[11px] font-bold text-slate-600">{format12h(m.startTime)}</td>
+                              <td className="px-8 py-5 text-xs font-black text-slate-800 uppercase italic">vs {oppName}</td>
+                              <td className="px-8 py-5 text-[10px] font-black text-indigo-400 uppercase italic">Court {m.court}</td>
+                              <td className="px-8 py-5 text-right"><span className="text-[9px] font-black uppercase text-indigo-500 bg-indigo-50 px-3 py-1 rounded-lg">Scheduled</span></td>
+                            </tr>
+                          );
+                        })}
+                        {selectedTeamUpcoming.length === 0 && <tr><td colSpan={4} className="py-12 text-center text-[10px] font-black text-slate-300 uppercase italic tracking-widest">No upcoming matches.</td></tr>}
+                      </tbody>
+                    </table>
+                  </div>
+               </div>
+
+               {/* Battle History Section */}
+               <div className="space-y-6">
+                  <div className="flex items-center space-x-4">
+                    <div className="h-px bg-slate-100 flex-grow"></div>
+                    <h5 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] italic">Battle History</h5>
+                    <div className="h-px bg-slate-100 flex-grow"></div>
+                  </div>
+                  <div className="bg-slate-50/50 rounded-[2rem] border border-slate-100 overflow-hidden">
+                    <table className="w-full text-left">
+                      <thead className="bg-slate-100/30">
+                        <tr className="text-[9px] font-black text-slate-400 uppercase tracking-widest">
+                          <th className="px-8 py-4">Result</th>
+                          <th className="px-8 py-4">Versus</th>
+                          <th className="px-8 py-4">Scoreline</th>
+                          <th className="px-8 py-4 text-right">Date</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {selectedTeamHistory.map(m => {
+                          const oppId = m.participants.find(p => p !== activeTeamId);
+                          const oppName = teams.find(t => t.id === oppId)?.name || 'Unknown';
+                          const isWin = m.winnerId === activeTeamId;
+                          return (
+                            <tr key={m.id} className="hover:bg-white transition-colors">
+                              <td className="px-8 py-5">
+                                <span className={`text-[10px] font-black uppercase tracking-widest px-3 py-1 rounded-lg ${isWin ? 'bg-emerald-50 text-emerald-500' : 'bg-rose-50 text-rose-500'}`}>
+                                  {isWin ? 'Victory' : 'Defeat'}
+                                </span>
+                              </td>
+                              <td className="px-8 py-5 text-xs font-black text-slate-800 uppercase italic">{oppName}</td>
+                              <td className="px-8 py-5 text-xs font-black text-slate-600 font-mono tracking-tighter">
+                                {m.scores.map(s => `${s.s1}-${s.s2}`).join(' / ')}
+                              </td>
+                              <td className="px-8 py-5 text-right text-[10px] font-bold text-slate-400">{new Date(m.startTime).toLocaleDateString()}</td>
+                            </tr>
+                          );
+                        })}
+                        {selectedTeamHistory.length === 0 && <tr><td colSpan={4} className="py-12 text-center text-[10px] font-black text-slate-300 uppercase italic tracking-widest">No match records found.</td></tr>}
+                      </tbody>
+                    </table>
                   </div>
                </div>
             </div>
@@ -529,6 +626,23 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
                    <button onClick={handleUpdatePin} className="bg-slate-900 text-white px-8 rounded-2xl font-black uppercase text-[10px] shadow-xl hover:bg-indigo-600 transition-all">Save PIN</button>
                  </div>
               </div>
+              
+              <div className="pt-4">
+                 <label className="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em] mb-3 ml-1 block italic">Ranking Criteria Hierarchy</label>
+                 <div className="space-y-2">
+                   {(tournament.rankingCriteriaOrder || ['MATCHES_WON', 'SETS_WON', 'POINTS_DIFF', 'HEAD_TO_HEAD']).map((criterion, idx) => (
+                     <div key={criterion} className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100 group">
+                        <span className="text-[10px] font-black uppercase tracking-widest text-slate-600">{idx + 1}. {criterion.replace(/_/g, ' ')}</span>
+                        {isOrganizer && (
+                          <div className="flex space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <button onClick={() => handleReorderCriteria(idx, 'up')} disabled={idx === 0} className="p-2 hover:bg-slate-200 rounded-lg text-slate-400 disabled:opacity-30">↑</button>
+                            <button onClick={() => handleReorderCriteria(idx, 'down')} disabled={idx === 3} className="p-2 hover:bg-slate-200 rounded-lg text-slate-400 disabled:opacity-30">↓</button>
+                          </div>
+                        )}
+                     </div>
+                   ))}
+                 </div>
+              </div>
             </div>
           </div>
           {isOrganizer && (
@@ -540,67 +654,158 @@ const TournamentDetails: React.FC<Props> = ({ tournament: initialTournament, use
         </div>
       )}
 
-      {/* --- SCOREBOARD OVERLAY --- */}
+      {/* --- PROFESSIONAL DARK SCOREBOARD OVERLAY MATCHING SCREENSHOT --- */}
       {showScoreboard && scoringMatch && (
-        <div className="fixed inset-0 bg-slate-900/95 backdrop-blur-2xl z-[600] flex items-center justify-center p-4 overflow-y-auto">
-           <div className="w-full max-w-4xl bg-white rounded-[4rem] p-10 md:p-16 shadow-2xl relative animate-in zoom-in duration-300">
-              <button onClick={() => setShowScoreboard(false)} className="absolute top-10 right-10 text-slate-300 hover:text-slate-800 transition-colors transform hover:rotate-90"><svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg></button>
+        <div className="fixed inset-0 bg-[#0c1221] z-[999] flex flex-col animate-in fade-in duration-300 font-sans overflow-hidden">
+          {/* Header Bar */}
+          <div className="flex items-center justify-between px-10 py-8">
+            <div className="flex items-center space-x-4">
+              <button 
+                onClick={() => setShowScoreboard(false)} 
+                className="flex items-center space-x-2 bg-[#1a2333] hover:bg-slate-700 text-slate-300 px-6 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-widest transition-all"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M15 19l-7-7 7-7" /></svg>
+                <span>Exit</span>
+              </button>
+              <button className="flex items-center space-x-2 bg-[#2d3a8c] hover:bg-indigo-700 text-white px-6 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-widest transition-all shadow-xl shadow-indigo-900/40">
+                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path d="M13 6a3 3 0 11-6 0 3 3 0 016 0zM18 8a2 2 0 11-4 0 2 2 0 014 0zM14 15a4 4 0 00-8 0v3h8v-3zM6 8a2 2 0 11-4 0 2 2 0 014 0zM16 18v-3a5.972 5.972 0 00-.75-2.906A3.005 3.005 0 0119 15v3h-3zM4.75 12.094A5.973 5.973 0 004 15v3H1v-3a3.005 3.005 0 013.75-2.906z" /></svg>
+                <span>Lineup</span>
+              </button>
+            </div>
+
+            <div className="text-center">
+              <span className="text-[10px] font-black text-slate-500 uppercase tracking-[0.4em] mb-4 block italic">Match Progression</span>
+              <div className="flex items-center justify-center space-x-2">
+                <div className="flex flex-col items-center">
+                   <div className="w-20 h-2 bg-[#4f46e5] rounded-full mb-2"></div>
+                   <span className="text-[9px] font-black text-slate-500">30:16</span>
+                </div>
+                <div className="flex flex-col items-center">
+                   <div className="w-20 h-2 bg-[#10b981] rounded-full mb-2"></div>
+                   <span className="text-[9px] font-black text-slate-500">0:22</span>
+                </div>
+                <div className="flex flex-col items-center">
+                   <div className="w-20 h-2 bg-[#334155] rounded-full mb-2 relative overflow-hidden">
+                      <div className="absolute inset-0 bg-white/10"></div>
+                   </div>
+                   <span className="text-[9px] font-black text-white italic">SET {activeSetIndex + 1}</span>
+                </div>
+              </div>
+            </div>
+
+            <button onClick={handleUndoScore} className="bg-[#1a2333] text-slate-400 px-8 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-widest transition-all">
+              Undo
+            </button>
+          </div>
+
+          {/* Main Scoring Area */}
+          <div className="flex-grow flex items-center justify-center gap-10 p-10">
+            {/* Left Player Area */}
+            {(() => {
+              const t1Id = isSwapped ? scoringMatch.participants[1] : scoringMatch.participants[0];
+              const t1 = teams.find(t => t.id === t1Id);
+              const score = isSwapped ? currentScores[activeSetIndex].s2 : currentScores[activeSetIndex].s1;
+              const colorClass = isSwapped ? 'bg-[#0a1f1a] border-[#10b981]/20' : 'bg-[#121931] border-[#4f46e5]/20';
+              const btnClass = isSwapped ? 'bg-[#10b981]' : 'bg-[#4f46e5]';
               
-              <div className="text-center mb-16">
-                 <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] mb-4 italic">Live Scoring Console • Court {scoringMatch.court}</p>
-                 <div className="flex items-center justify-center space-x-12">
-                    <div className="text-center flex-1">
-                       <h3 className="text-4xl md:text-5xl font-black text-slate-800 uppercase italic tracking-tighter mb-2 leading-none">{isSwapped ? (teams.find(t => t.id === scoringMatch.participants[1])?.name) : (teams.find(t => t.id === scoringMatch.participants[0])?.name)}</h3>
-                       <p className="text-[10px] font-black text-indigo-500 uppercase italic tracking-widest">Left Court</p>
+              return (
+                <div className={`flex-1 h-full rounded-[4rem] border-2 flex flex-col items-center justify-center relative shadow-[0_0_80px_rgba(0,0,0,0.5)] transition-all duration-700 ${colorClass}`}>
+                  <div className="relative z-10 text-center w-full px-10">
+                    <h2 className="text-5xl font-black text-white uppercase italic tracking-tighter mb-3">{t1?.name}</h2>
+                    <div className="flex items-center justify-center space-x-2 text-slate-500 mb-12">
+                       <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20"><path d="M13 6a3 3 0 11-6 0 3 3 0 016 0zM18 8a2 2 0 11-4 0 2 2 0 014 0zM14 15a4 4 0 00-8 0v3h8v-3zM6 8a2 2 0 11-4 0 2 2 0 014 0zM16 18v-3a5.972 5.972 0 00-.75-2.906A3.005 3.005 0 0119 15v3h-3zM4.75 12.094A5.973 5.973 0 004 15v3H1v-3a3.005 3.005 0 013.75-2.906z" /></svg>
+                       <span className="text-[10px] font-black uppercase tracking-[0.3em]">{t1?.customPlayerNames?.join(' ') || 'MANUAL'}</span>
                     </div>
-                    <div className="w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center font-black text-slate-300 text-2xl italic">vs</div>
-                    <div className="text-center flex-1">
-                       <h3 className="text-4xl md:text-5xl font-black text-slate-800 uppercase italic tracking-tighter mb-2 leading-none">{isSwapped ? (teams.find(t => t.id === scoringMatch.participants[0])?.name) : (teams.find(t => t.id === scoringMatch.participants[1])?.name)}</h3>
-                       <p className="text-[10px] font-black text-indigo-500 uppercase italic tracking-widest">Right Court</p>
-                    </div>
-                 </div>
-              </div>
 
-              <div className="flex justify-center space-x-3 mb-12 flex-wrap gap-y-3">
-                 {currentScores.map((_, i) => (
-                    <button key={i} onClick={() => setActiveSetIndex(i)} className={`px-10 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest transition-all ${activeSetIndex === i ? 'bg-indigo-600 text-white shadow-xl scale-110' : 'bg-slate-100 text-slate-400 hover:bg-slate-200'}`}>Set {i+1}</button>
-                 ))}
-                 {currentScores.length < scoringMatch.bestOf && <button onClick={() => setCurrentScores([...currentScores, {s1: 0, s2: 0}])} className="px-8 py-4 rounded-2xl font-black text-[10px] text-indigo-600 border-2 border-indigo-100 hover:bg-indigo-50 transition-all">+ Add Decider</button>}
-              </div>
-
-              <div className="grid grid-cols-2 gap-10 mb-16">
-                 <div className="space-y-6">
-                    <div className="bg-slate-50 rounded-[3rem] p-12 text-center relative overflow-hidden group shadow-inner">
-                       <p className="text-[120px] md:text-[160px] font-black text-slate-800 italic leading-none tabular-nums tracking-tighter mb-8">{isSwapped ? currentScores[activeSetIndex].s2 : currentScores[activeSetIndex].s1}</p>
-                       <div className="flex justify-center space-x-4">
-                          <button onClick={() => handleUpdateScore(activeSetIndex, isSwapped ? 2 : 1, 1)} className="w-24 h-24 bg-indigo-600 text-white rounded-[2rem] text-4xl font-black shadow-2xl hover:scale-110 active:scale-90 transition-all">+</button>
-                          <button onClick={() => handleUpdateScore(activeSetIndex, isSwapped ? 2 : 1, -1)} className="w-24 h-24 bg-white text-slate-300 rounded-[2rem] text-4xl font-black shadow-sm border border-slate-100 hover:text-rose-500 transition-all">-</button>
+                    <div className="flex items-center justify-center space-x-12 relative">
+                       <button onClick={() => handleUpdateScore(activeSetIndex, isSwapped ? 2 : 1, -1)} className="w-32 h-32 rounded-full bg-white/5 border border-white/10 text-slate-400 hover:text-white flex items-center justify-center text-5xl font-light transition-all active:scale-90">
+                         —
+                       </button>
+                       <div className="relative">
+                         <span className="text-[280px] font-black text-white leading-none italic tabular-nums tracking-tighter drop-shadow-[0_45px_45px_rgba(0,0,0,0.8)] z-10 relative">
+                           {score}
+                         </span>
+                         <span className="absolute -inset-16 text-[320px] font-black text-white/[0.03] pointer-events-none select-none italic text-center leading-none">
+                           {score}
+                         </span>
                        </div>
+                       <button onClick={() => handleUpdateScore(activeSetIndex, isSwapped ? 2 : 1, 1)} className={`w-32 h-32 rounded-full flex items-center justify-center text-6xl font-light transition-all active:scale-90 shadow-[0_20px_50px_rgba(0,0,0,0.4)] text-white ${btnClass}`}>
+                         +
+                       </button>
                     </div>
-                 </div>
-                 <div className="space-y-6">
-                    <div className="bg-slate-50 rounded-[3rem] p-12 text-center relative overflow-hidden group shadow-inner">
-                       <p className="text-[120px] md:text-[160px] font-black text-slate-800 italic leading-none tabular-nums tracking-tighter mb-8">{isSwapped ? currentScores[activeSetIndex].s1 : currentScores[activeSetIndex].s2}</p>
-                       <div className="flex justify-center space-x-4">
-                          <button onClick={() => handleUpdateScore(activeSetIndex, isSwapped ? 1 : 2, 1)} className="w-24 h-24 bg-indigo-600 text-white rounded-[2rem] text-4xl font-black shadow-2xl hover:scale-110 active:scale-90 transition-all">+</button>
-                          <button onClick={() => handleUpdateScore(activeSetIndex, isSwapped ? 1 : 2, -1)} className="w-24 h-24 bg-white text-slate-300 rounded-[2rem] text-4xl font-black shadow-sm border border-slate-100 hover:text-rose-500 transition-all">-</button>
-                       </div>
-                    </div>
-                 </div>
-              </div>
+                  </div>
+                </div>
+              );
+            })()}
 
-              <div className="flex flex-col md:flex-row gap-6 items-center border-t border-slate-100 pt-12">
-                 <button onClick={() => setIsSwapped(!isSwapped)} className="w-full md:w-auto px-10 py-5 bg-slate-900 text-white rounded-[1.5rem] font-black uppercase text-[10px] tracking-widest shadow-xl flex items-center justify-center space-x-3 active:scale-95 transition-all">
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" /></svg>
-                    <span>Swap Sides</span>
-                 </button>
-                 <div className="flex-1 w-full relative">
-                    <input type="password" placeholder="ENTER 4-DIGIT SCORER PIN" className="w-full p-5 bg-slate-50 rounded-[1.5rem] font-black text-center text-sm outline-none border-2 border-transparent focus:border-indigo-500 tracking-widest placeholder:tracking-normal" value={pinEntry} onChange={e => setPinEntry(e.target.value)} />
-                    {user.id === tournament.organizerId && <span className="absolute right-6 top-1/2 -translate-y-1/2 text-[9px] font-black text-emerald-500 uppercase bg-emerald-50 px-3 py-1 rounded-lg italic">Owner Access</span>}
-                 </div>
-                 <button onClick={handleSaveScore} className="w-full md:w-auto px-16 py-5 bg-indigo-600 text-white rounded-[1.5rem] font-black uppercase text-[10px] tracking-widest shadow-2xl shadow-indigo-200 hover:scale-[1.05] active:scale-95 transition-all leading-none">Submit Final Scores</button>
-              </div>
-           </div>
+            {/* Right Player Area */}
+            {(() => {
+              const t2Id = isSwapped ? scoringMatch.participants[0] : scoringMatch.participants[1];
+              const t2 = teams.find(t => t.id === t2Id);
+              const score = isSwapped ? currentScores[activeSetIndex].s1 : currentScores[activeSetIndex].s2;
+              const colorClass = isSwapped ? 'bg-[#121931] border-[#4f46e5]/20' : 'bg-[#0a1f1a] border-[#10b981]/20';
+              const btnClass = isSwapped ? 'bg-[#4f46e5]' : 'bg-[#10b981]';
+              
+              return (
+                <div className={`flex-1 h-full rounded-[4rem] border-2 flex flex-col items-center justify-center relative shadow-[0_0_80px_rgba(0,0,0,0.5)] transition-all duration-700 ${colorClass}`}>
+                  <div className="relative z-10 text-center w-full px-10">
+                    <h2 className="text-5xl font-black text-white uppercase italic tracking-tighter mb-3">{t2?.name}</h2>
+                    <div className="flex items-center justify-center space-x-2 text-slate-500 mb-12">
+                       <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20"><path d="M13 6a3 3 0 11-6 0 3 3 0 016 0zM18 8a2 2 0 11-4 0 2 2 0 014 0zM14 15a4 4 0 00-8 0v3h8v-3zM6 8a2 2 0 11-4 0 2 2 0 014 0zM16 18v-3a5.972 5.972 0 00-.75-2.906A3.005 3.005 0 0119 15v3h-3zM4.75 12.094A5.973 5.973 0 004 15v3H1v-3a3.005 3.005 0 013.75-2.906z" /></svg>
+                       <span className="text-[10px] font-black uppercase tracking-[0.3em]">{t2?.customPlayerNames?.join(' ') || 'MANUAL'}</span>
+                    </div>
+
+                    <div className="flex items-center justify-center space-x-12 relative">
+                       <button onClick={() => handleUpdateScore(activeSetIndex, isSwapped ? 1 : 2, -1)} className="w-32 h-32 rounded-full bg-white/5 border border-white/10 text-slate-400 hover:text-white flex items-center justify-center text-5xl font-light transition-all active:scale-90">
+                         —
+                       </button>
+                       <div className="relative">
+                         <span className="text-[280px] font-black text-white leading-none italic tabular-nums tracking-tighter drop-shadow-[0_45px_45px_rgba(0,0,0,0.8)] z-10 relative">
+                           {score}
+                         </span>
+                         <span className="absolute -inset-16 text-[320px] font-black text-white/[0.03] pointer-events-none select-none italic text-center leading-none">
+                           {score}
+                         </span>
+                       </div>
+                       <button onClick={() => handleUpdateScore(activeSetIndex, isSwapped ? 1 : 2, 1)} className={`w-32 h-32 rounded-full flex items-center justify-center text-6xl font-light transition-all active:scale-90 shadow-[0_20px_50px_rgba(0,0,0,0.4)] text-white ${btnClass}`}>
+                         +
+                       </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
+
+          {/* Footer UI Matching Screenshot */}
+          <div className="px-10 py-10 flex items-center justify-between">
+            <button onClick={() => setIsSwapped(!isSwapped)} className="w-20 h-20 rounded-full bg-[#1a2333] border border-white/5 flex items-center justify-center text-slate-400 hover:text-white transition-all shadow-xl active:scale-90 rotate-90">
+               <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+            </button>
+
+            <div className="flex-1 max-w-2xl mx-10">
+               <div className="bg-[#121931]/80 border border-white/5 rounded-[2.5rem] py-6 flex items-center justify-center shadow-inner relative overflow-hidden group">
+                  <div className="absolute inset-0 bg-white/[0.02] translate-y-full group-hover:translate-y-0 transition-transform duration-500"></div>
+                  <span className="text-[12px] font-black text-slate-400 uppercase tracking-[0.5em] italic">Target Score: {scoringMatch.pointsOption}</span>
+               </div>
+            </div>
+
+            <div className="flex items-center space-x-4">
+               <div className="relative">
+                 <input 
+                   type="password" placeholder="PIN" 
+                   className="w-32 bg-[#1a2333] border border-white/5 rounded-2xl p-5 text-center font-black text-white text-lg outline-none focus:border-indigo-500 transition-all placeholder:text-slate-700 uppercase"
+                   value={pinEntry} onChange={e => setPinEntry(e.target.value)}
+                 />
+               </div>
+               <button 
+                 onClick={handleSaveScore}
+                 className="bg-[#4f46e5] hover:bg-indigo-500 text-white px-12 py-5 rounded-[2rem] font-black uppercase text-xs tracking-[0.2em] shadow-[0_15px_40px_rgba(79,70,229,0.3)] transition-all active:scale-95 leading-none"
+               >
+                 Submit
+               </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
